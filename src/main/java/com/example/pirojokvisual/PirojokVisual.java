@@ -6,5 +6,6 @@ public class PirojokVisual implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
+        new Visuals().onInitializeClient();
     }
 }
