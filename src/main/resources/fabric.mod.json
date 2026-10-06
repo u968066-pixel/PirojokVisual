@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "pirojokvisual",
+  "version": "${version}",
+  "name": "Pirozhok Visuals",
+  "description": "Pirozhok Visuals client mod",
+  "authors": [
+    "Pirozhok"
+  ],
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.example.pirojokvisual.TotemMod",
+      "com.example.pirojokvisual.Visuals"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.10",
+    "minecraft": "~1.21.4",
+    "fabric-api": "*"
+  }
+}
