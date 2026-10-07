@@ -4,6 +4,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
@@ -13,18 +14,22 @@ import net.minecraft.client.network.PlayerListEntry;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.sound.PositionedSoundInstance;
 import net.minecraft.client.util.InputUtil;
+import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
+import net.minecraft.util.ActionResult;
 import org.lwjgl.glfw.GLFW;
 
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -60,7 +65,7 @@ public class PirojokVisual implements ClientModInitializer {
 
 		String shown() {
 			if (type == 0) return b ? "ON" : "OFF";
-			if (type == 1) return String.valueOf(Math.round(v));
+			if (type == 1) return step < 1f ? String.format("%.1f", v) : String.valueOf(Math.round(v));
 			return opts[idx];
 		}
 
@@ -95,9 +100,12 @@ public class PirojokVisual implements ClientModInitializer {
 		Mod add(Setting s) { sets.add(s); return this; }
 	}
 
-	static final Setting S_ZOOM = Setting.slider("FOV", 30, 70, 5, 30);
+	static final Setting S_ZOOM = Setting.slider("FOV", 10, 70, 5, 30);
 	static final Setting S_SMOOTH = Setting.bool("Smooth", true);
 	static final Setting S_CROSS = Setting.mode("Style", 2, "Dot", "Ticks", "Both");
+	static final Setting S_LOWHP = Setting.slider("HP", 2, 10, 1, 6);
+	static final Setting S_HSOUND = Setting.mode("Sound", 3, "Pling", "Bell", "Bit", "Orb", "Arrow");
+	static final Setting S_HPITCH = Setting.slider("Pitch", 0.5f, 2.0f, 0.1f, 1.2f);
 	static final Setting S_COLOR = Setting.mode("Color", 0, "White", "Green", "Cyan", "Pink", "Orange", "Rainbow");
 	static final Setting S_SOUND = Setting.bool("Sounds", true);
 
@@ -106,17 +114,24 @@ public class PirojokVisual implements ClientModInitializer {
 	static final Mod FPS = new Mod("FPS", "HUD", true, false);
 	static final Mod PING = new Mod("Ping", "HUD", true, false);
 	static final Mod CPS = new Mod("CPS", "HUD", true, false);
+	static final Mod SPEED = new Mod("Speed", "HUD", false, false);
+	static final Mod TIME = new Mod("Time", "HUD", false, false);
 	static final Mod TOTEMS = new Mod("Totems", "HUD", true, false);
+	static final Mod ARMOR = new Mod("Armor", "HUD", true, false);
+	static final Mod EFFECTS = new Mod("Effects", "HUD", true, false);
+	static final Mod KEYS = new Mod("Keystrokes", "HUD", false, false);
 	static final Mod ARRAYLIST = new Mod("ArrayList", "HUD", true, false);
 	static final Mod NIGHT = new Mod("Night Vision", "Visuals", false, false);
 	static final Mod BRIGHT = new Mod("Brightness", "Visuals", false, false);
 	static final Mod ZOOM = new Mod("Zoom", "Visuals", true, false).add(S_ZOOM).add(S_SMOOTH);
 	static final Mod CROSS = new Mod("Crosshair", "Visuals", false, false).add(S_CROSS);
+	static final Mod LOWHP = new Mod("Low HP Alert", "Visuals", false, false).add(S_LOWHP);
 	static final Mod SPRINT = new Mod("Auto Sprint", "Player", false, false);
+	static final Mod HITSOUND = new Mod("Hit Sound", "Player", false, false).add(S_HSOUND).add(S_HPITCH);
 	static final Mod IFACE = new Mod("Interface", "Client", true, true).add(S_COLOR).add(S_SOUND);
 
-	static final Mod[] ALL = {WATERMARK, COORDS, FPS, PING, CPS, TOTEMS, ARRAYLIST,
-			NIGHT, BRIGHT, ZOOM, CROSS, SPRINT, IFACE};
+	static final Mod[] ALL = {WATERMARK, COORDS, FPS, PING, CPS, SPEED, TIME, TOTEMS, ARMOR, EFFECTS, KEYS, ARRAYLIST,
+			NIGHT, BRIGHT, ZOOM, CROSS, LOWHP, SPRINT, HITSOUND, IFACE};
 	static final String[] CATS = {"HUD", "Visuals", "Player", "Client"};
 	static final int[] COLORS = {0xFFFFFF, 0x55FF55, 0x55FFFF, 0xFF77CC, 0xFFAA00, 0};
 
@@ -124,11 +139,15 @@ public class PirojokVisual implements ClientModInitializer {
 	static final int[] PX = new int[4];
 	static final int[] PY = new int[4];
 	static boolean hudVisible = true;
+	static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
 
 	static {
 		Arrays.fill(PX, UNSET);
 		Arrays.fill(PY, UNSET);
 	}
+
+	/** Вызывается из mixin: прячет ванильный прицел, когда включён наш. */
+	public static boolean hideVanillaCrosshair() { return CROSS.enabled; }
 
 	static List<Mod> modsOf(String cat) {
 		List<Mod> l = new ArrayList<>();
@@ -214,6 +233,18 @@ public class PirojokVisual implements ClientModInitializer {
 			.play(PositionedSoundInstance.master(SoundEvents.BLOCK_NOTE_BLOCK_CHIME, 1.2f));
 	}
 
+	static void playHit() {
+		var sm = MinecraftClient.getInstance().getSoundManager();
+		float p = S_HPITCH.v;
+		switch (S_HSOUND.idx) {
+			case 0 -> sm.play(PositionedSoundInstance.master(SoundEvents.BLOCK_NOTE_BLOCK_PLING, p));
+			case 1 -> sm.play(PositionedSoundInstance.master(SoundEvents.BLOCK_NOTE_BLOCK_BELL, p));
+			case 2 -> sm.play(PositionedSoundInstance.master(SoundEvents.BLOCK_NOTE_BLOCK_BIT, p));
+			case 3 -> sm.play(PositionedSoundInstance.master(SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, p));
+			default -> sm.play(PositionedSoundInstance.master(SoundEvents.ENTITY_ARROW_HIT_PLAYER, p));
+		}
+	}
+
 	// ---------- mod logic ----------
 	private KeyBinding menuKey, hudKey, nightKey, zoomKey;
 	private boolean zoomActive = false, wasNight = false, wasBright = false, lastAttack = false;
@@ -221,6 +252,19 @@ public class PirojokVisual implements ClientModInitializer {
 	private float curFov = 70f;
 	private double savedGamma = 0.5;
 	private final List<Long> clicks = new ArrayList<>();
+
+	// cached HUD data (updated in tick, not every frame)
+	private int tickCount = 0;
+	private double prevX, prevZ;
+	private float speed = 0f;
+	private String[] infoLines = new String[0];
+	private int[] infoW = new int[0];
+	private String[] effLines = new String[0];
+	private int[] effW = new int[0];
+	private String[] arrNames = new String[0];
+	private int[] arrW = new int[0];
+	private int totemCount = 0;
+	private ItemStack totemStack;
 
 	@Override
 	public void onInitializeClient() {
@@ -231,6 +275,10 @@ public class PirojokVisual implements ClientModInitializer {
 		zoomKey = reg("Zoom (hold)", GLFW.GLFW_KEY_C);
 		ClientTickEvents.END_CLIENT_TICK.register(this::tick);
 		HudRenderCallback.EVENT.register((ctx, tc) -> render(ctx));
+		AttackEntityCallback.EVENT.register((player, world, hand, entity, hit) -> {
+			if (world.isClient && HITSOUND.enabled) playHit();
+			return ActionResult.PASS;
+		});
 	}
 
 	private KeyBinding reg(String name, int key) {
@@ -254,6 +302,13 @@ public class PirojokVisual implements ClientModInitializer {
 		if (atk && !lastAttack) clicks.add(now);
 		lastAttack = atk;
 		clicks.removeIf(t -> now - t > 1000);
+
+		double dx = mc.player.getX() - prevX, dz = mc.player.getZ() - prevZ;
+		prevX = mc.player.getX();
+		prevZ = mc.player.getZ();
+		speed = speed * 0.8f + (float) (Math.sqrt(dx * dx + dz * dz) * 20) * 0.2f;
+
+		if (++tickCount % 2 == 0) refresh(mc);
 
 		if (NIGHT.enabled) {
 			StatusEffectInstance e = mc.player.getStatusEffect(StatusEffects.NIGHT_VISION);
@@ -292,7 +347,7 @@ public class PirojokVisual implements ClientModInitializer {
 		}
 	}
 
-	private int totems(MinecraftClient mc) {
+	private int countTotems(MinecraftClient mc) {
 		int n = 0;
 		for (int i = 0; i < 36; i++) {
 			ItemStack s = mc.player.getInventory().getStack(i);
@@ -303,15 +358,81 @@ public class PirojokVisual implements ClientModInitializer {
 		return n;
 	}
 
+	/** Строки и ширины считаем раз в 2 тика, а не каждый кадр: меньше нагрузки. */
+	private void refresh(MinecraftClient mc) {
+		TextRenderer tr = mc.textRenderer;
+		var p = mc.player;
+
+		List<String> info = new ArrayList<>();
+		if (COORDS.enabled) info.add(String.format("XYZ: %.1f %.1f %.1f", p.getX(), p.getY(), p.getZ()));
+		if (FPS.enabled) info.add("FPS: " + mc.getCurrentFps());
+		if (PING.enabled) {
+			int ping = 0;
+			if (mc.getNetworkHandler() != null) {
+				PlayerListEntry pe = mc.getNetworkHandler().getPlayerListEntry(p.getUuid());
+				if (pe != null) ping = pe.getLatency();
+			}
+			info.add("Ping: " + ping + " ms");
+		}
+		if (CPS.enabled) info.add("CPS: " + clicks.size());
+		if (SPEED.enabled) info.add(String.format("Speed: %.1f b/s", speed));
+		if (TIME.enabled) info.add(LocalTime.now().format(TIME_FMT));
+		infoLines = info.toArray(new String[0]);
+		infoW = new int[infoLines.length];
+		for (int i = 0; i < infoLines.length; i++) infoW[i] = tr.getWidth(infoLines[i]);
+
+		List<String> eff = new ArrayList<>();
+		if (EFFECTS.enabled) {
+			for (StatusEffectInstance e : p.getStatusEffects()) {
+				if (NIGHT.enabled && e.getEffectType().equals(StatusEffects.NIGHT_VISION)) continue;
+				String n = e.getEffectType().value().getName().getString();
+				if (e.getAmplifier() > 0) n += " " + (e.getAmplifier() + 1);
+				int sec = e.getDuration() / 20;
+				String t = e.isInfinite() ? "inf" : String.format("%d:%02d", sec / 60, sec % 60);
+				eff.add(n + "  " + t);
+			}
+		}
+		effLines = eff.toArray(new String[0]);
+		effW = new int[effLines.length];
+		for (int i = 0; i < effLines.length; i++) effW[i] = tr.getWidth(effLines[i]);
+
+		List<String> names = new ArrayList<>();
+		if (ARRAYLIST.enabled) {
+			for (Mod m : ALL) {
+				if (m.always || !m.enabled || m.cat.equals("HUD")) continue;
+				if (m == ZOOM && !zoomActive) continue;
+				names.add(m.name);
+			}
+			names.sort((a, b) -> tr.getWidth(b) - tr.getWidth(a));
+		}
+		arrNames = names.toArray(new String[0]);
+		arrW = new int[arrNames.length];
+		for (int i = 0; i < arrNames.length; i++) arrW[i] = tr.getWidth(arrNames[i]);
+
+		totemCount = countTotems(mc);
+	}
+
 	private void render(DrawContext ctx) {
 		MinecraftClient mc = MinecraftClient.getInstance();
 		if (mc.player == null || mc.options.hudHidden) return;
-		final TextRenderer tr = mc.textRenderer;
+		// один пакет отрисовки вместо десятков отдельных вызовов
+		ctx.draw(() -> draw(ctx, mc));
+	}
+
+	private void key(DrawContext ctx, TextRenderer tr, int x, int y, int w, String label, boolean down, int col) {
+		ctx.fill(x, y, x + w, y + 14, down ? ((col & 0x00FFFFFF) | 0xAA000000) : 0x80101018);
+		int tw = tr.getWidth(label);
+		ctx.drawTextWithShadow(tr, label, x + (w - tw) / 2, y + 3, down ? 0xFF000000 : 0xFFFFFFFF);
+	}
+
+	private void draw(DrawContext ctx, MinecraftClient mc) {
+		TextRenderer tr = mc.textRenderer;
+		int sw = mc.getWindow().getScaledWidth();
+		int sh = mc.getWindow().getScaledHeight();
 		int col = themeColor();
 
 		if (CROSS.enabled && mc.currentScreen == null) {
-			int cx = mc.getWindow().getScaledWidth() / 2;
-			int cy = mc.getWindow().getScaledHeight() / 2;
+			int cx = sw / 2, cy = sh / 2;
 			int st = S_CROSS.idx;
 			if (st == 0 || st == 2) ctx.fill(cx - 1, cy - 1, cx + 1, cy + 1, col);
 			if (st == 1 || st == 2) {
@@ -320,6 +441,16 @@ public class PirojokVisual implements ClientModInitializer {
 				ctx.fill(cx - 12, cy - 1, cx - 8, cy + 1, col);
 				ctx.fill(cx + 8, cy - 1, cx + 12, cy + 1, col);
 			}
+		}
+
+		if (LOWHP.enabled && mc.player.isAlive() && mc.player.getHealth() <= S_LOWHP.v) {
+			int a = (int) (60 + 50 * Math.sin(System.currentTimeMillis() / 180.0));
+			int c = (a << 24) | 0xFF2020;
+			int t = 10;
+			ctx.fill(0, 0, sw, t, c);
+			ctx.fill(0, sh - t, sw, sh, c);
+			ctx.fill(0, t, t, sh - t, c);
+			ctx.fill(sw - t, t, sw, sh - t, c);
 		}
 
 		if (!hudVisible) return;
@@ -334,44 +465,67 @@ public class PirojokVisual implements ClientModInitializer {
 			y += 18;
 		}
 
-		List<String> info = new ArrayList<>();
-		if (COORDS.enabled) info.add(String.format("XYZ: %.1f %.1f %.1f", mc.player.getX(), mc.player.getY(), mc.player.getZ()));
-		if (FPS.enabled) info.add("FPS: " + mc.getCurrentFps());
-		if (PING.enabled) {
-			int ping = 0;
-			if (mc.getNetworkHandler() != null) {
-				PlayerListEntry pe = mc.getNetworkHandler().getPlayerListEntry(mc.player.getUuid());
-				if (pe != null) ping = pe.getLatency();
-			}
-			info.add("Ping: " + ping + " ms");
-		}
-		if (CPS.enabled) info.add("CPS: " + clicks.size());
-		if (TOTEMS.enabled) info.add("Totems: " + totems(mc));
-		for (String s : info) {
-			int w = tr.getWidth(s) + 8;
-			ctx.fill(4, y, 4 + w, y + 11, 0x80101018);
+		for (int i = 0; i < infoLines.length; i++) {
+			ctx.fill(4, y, 4 + infoW[i] + 8, y + 11, 0x80101018);
 			ctx.fill(4, y, 5, y + 11, col);
-			ctx.drawTextWithShadow(tr, s, 8, y + 2, 0xFFFFFFFF);
+			ctx.drawTextWithShadow(tr, infoLines[i], 8, y + 2, 0xFFFFFFFF);
 			y += 12;
 		}
 
-		if (ARRAYLIST.enabled) {
-			List<String> names = new ArrayList<>();
-			for (Mod m : ALL) {
-				if (m.always || !m.enabled || m.cat.equals("HUD")) continue;
-				if (m == ZOOM && !zoomActive) continue;
-				names.add(m.name);
-			}
-			names.sort((a, b) -> tr.getWidth(b) - tr.getWidth(a));
-			int sw = mc.getWindow().getScaledWidth();
-			int ry = 4;
-			for (String s : names) {
-				int tw = tr.getWidth(s);
-				int x1 = sw - tw - 8;
-				ctx.fill(x1, ry, sw, ry + 11, 0x80101018);
-				ctx.fill(sw - 2, ry, sw, ry + 11, col);
-				ctx.drawTextWithShadow(tr, s, x1 + 3, ry + 2, col);
-				ry += 12;
+		if (effLines.length > 0) y += 2;
+		for (int i = 0; i < effLines.length; i++) {
+			ctx.fill(4, y, 4 + effW[i] + 8, y + 11, 0x80101018);
+			ctx.fill(4, y, 5, y + 11, 0xFFAA55FF);
+			ctx.drawTextWithShadow(tr, effLines[i], 8, y + 2, 0xFFFFFFFF);
+			y += 12;
+		}
+
+		if (KEYS.enabled) {
+			int kx = 4, ky = sh - 62;
+			key(ctx, tr, kx + 16, ky, 14, "W", mc.options.forwardKey.isPressed(), col);
+			key(ctx, tr, kx, ky + 16, 14, "A", mc.options.leftKey.isPressed(), col);
+			key(ctx, tr, kx + 16, ky + 16, 14, "S", mc.options.backKey.isPressed(), col);
+			key(ctx, tr, kx + 32, ky + 16, 14, "D", mc.options.rightKey.isPressed(), col);
+			key(ctx, tr, kx, ky + 32, 46, "Space", mc.options.jumpKey.isPressed(), col);
+		}
+
+		int ry = 4;
+		for (int i = 0; i < arrNames.length; i++) {
+			int x1 = sw - arrW[i] - 8;
+			ctx.fill(x1, ry, sw, ry + 11, 0x80101018);
+			ctx.fill(sw - 2, ry, sw, ry + 11, col);
+			ctx.drawTextWithShadow(tr, arrNames[i], x1 + 3, ry + 2, col);
+			ry += 12;
+		}
+
+		// тотемы: слева от полоски сердец
+		if (TOTEMS.enabled) {
+			if (totemStack == null) totemStack = new ItemStack(Items.TOTEM_OF_UNDYING);
+			int ix = sw / 2 - 91 - 19;
+			int iy = sh - 42;
+			ctx.drawItem(totemStack, ix, iy);
+			String n = String.valueOf(totemCount);
+			int nw = tr.getWidth(n);
+			ctx.drawTextWithShadow(tr, n, ix - nw - 2, iy + 4, totemCount > 0 ? 0xFFFFFFFF : 0xFFFF5555);
+		}
+
+		// броня и прочность: справа над едой
+		if (ARMOR.enabled) {
+			EquipmentSlot[] slots = {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
+			int ax = sw / 2 + 91 - 4 * 20;
+			int ay = sh - 75;
+			for (int i = 0; i < 4; i++) {
+				ItemStack s = mc.player.getEquippedStack(slots[i]);
+				if (s.isEmpty()) continue;
+				int x = ax + i * 20;
+				ctx.drawItem(s, x, ay);
+				if (s.isDamageable()) {
+					ctx.drawStackOverlay(tr, s, x, ay);
+					int pct = 100 - s.getDamage() * 100 / Math.max(1, s.getMaxDamage());
+					String t = pct + "%";
+					int c2 = pct > 50 ? 0xFF55FF55 : (pct > 20 ? 0xFFFFAA00 : 0xFFFF5555);
+					ctx.drawTextWithShadow(tr, t, x + 8 - tr.getWidth(t) / 2, ay + 17, c2);
+				}
 			}
 		}
 	}
@@ -385,185 +539,4 @@ public class PirojokVisual implements ClientModInitializer {
 
 		MenuScreen() { super(Text.literal("Pirozhok Visuals")); }
 
-		@Override
-		protected void init() {
-			int total = CATS.length * PW + (CATS.length - 1) * GAP;
-			int sx = Math.max(4, (width - total) / 2);
-			for (int i = 0; i < CATS.length; i++) {
-				if (PX[i] == UNSET || PY[i] == UNSET) { PX[i] = sx + i * (PW + GAP); PY[i] = 24; }
-				PX[i] = Math.max(0, Math.min(Math.max(0, width - PW), PX[i]));
-				PY[i] = Math.max(0, Math.min(Math.max(0, height - HH), PY[i]));
-			}
-		}
-
-		static int lerp(int c1, int c2, float t) {
-			int r = (int) (((c1 >> 16) & 255) * (1 - t) + ((c2 >> 16) & 255) * t);
-			int g = (int) (((c1 >> 8) & 255) * (1 - t) + ((c2 >> 8) & 255) * t);
-			int bl = (int) ((c1 & 255) * (1 - t) + (c2 & 255) * t);
-			return 0xFF000000 | (r << 16) | (g << 8) | bl;
-		}
-
-		static void rrect(DrawContext ctx, int x1, int y1, int x2, int y2, int color) {
-			ctx.fill(x1 + 1, y1, x2 - 1, y2, color);
-			ctx.fill(x1, y1 + 1, x2, y2 - 1, color);
-		}
-
-		@Override
-		public boolean shouldPause() { return false; }
-
-		@Override
-		public void removed() { save(); }
-
-		@Override
-		public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-			if (keyCode == GLFW.GLFW_KEY_M) { close(); return true; }
-			return super.keyPressed(keyCode, scanCode, modifiers);
-		}
-
-		private void setSlider(double mx) {
-			float t = (float) ((mx - (sliderX + 3)) / (PW - 6));
-			t = Math.max(0f, Math.min(1f, t));
-			float val = dragSlider.min + t * (dragSlider.max - dragSlider.min);
-			val = Math.round(val / dragSlider.step) * dragSlider.step;
-			dragSlider.v = Math.max(dragSlider.min, Math.min(dragSlider.max, val));
-		}
-
-		private void handleSetting(Setting s, int px, double mx) {
-			if (s.type == 0) { s.b = !s.b; click(s.b); }
-			else if (s.type == 2) { s.idx = (s.idx + 1) % s.opts.length; click(true); }
-			else { dragSlider = s; sliderX = px; setSlider(mx); }
-		}
-
-		@Override
-		public boolean mouseClicked(double mx, double my, int button) {
-			for (int c = 0; c < CATS.length; c++) {
-				int x = PX[c], y = PY[c];
-				if (mx < x || mx > x + PW) continue;
-				if (my >= y && my <= y + HH) {
-					if (button == 0) { dragPanel = c; dragDX = (int) mx - x; dragDY = (int) my - y; return true; }
-					continue;
-				}
-				int cy = y + HH;
-				for (Mod m : modsOf(CATS[c])) {
-					if (my >= cy && my < cy + MH) {
-						boolean arrow = !m.sets.isEmpty() && mx >= x + PW - 16;
-						if (button == 1 || arrow || (m.always && !m.sets.isEmpty())) {
-							if (!m.sets.isEmpty()) { m.open = !m.open; click(m.open); }
-						} else if (button == 0 && !m.always) {
-							m.enabled = !m.enabled;
-							click(m.enabled);
-						}
-						return true;
-					}
-					cy += MH;
-					if (m.open && m.openAnim >= 1f) {
-						for (Setting s : m.sets) {
-							if (my >= cy && my < cy + SH) {
-								if (button == 0) handleSetting(s, x, mx);
-								return true;
-							}
-							cy += SH;
-						}
-					} else {
-						cy += (int) (m.openAnim * m.sets.size() * SH);
-					}
-				}
-			}
-			return super.mouseClicked(mx, my, button);
-		}
-
-		@Override
-		public boolean mouseDragged(double mx, double my, int button, double dx, double dy) {
-			if (dragPanel >= 0) {
-				PX[dragPanel] = Math.max(0, Math.min(Math.max(0, width - PW), (int) mx - dragDX));
-				PY[dragPanel] = Math.max(0, Math.min(Math.max(0, height - HH), (int) my - dragDY));
-				return true;
-			}
-			if (dragSlider != null) { setSlider(mx); return true; }
-			return super.mouseDragged(mx, my, button, dx, dy);
-		}
-
-		@Override
-		public boolean mouseReleased(double mx, double my, int button) {
-			boolean was = dragPanel >= 0 || dragSlider != null;
-			dragPanel = -1;
-			dragSlider = null;
-			if (was) save();
-			return super.mouseReleased(mx, my, button);
-		}
-
-		private int panelHeight(List<Mod> mods) {
-			int h = HH;
-			for (Mod m : mods) h += MH + (int) (m.openAnim * m.sets.size() * SH);
-			return h + 3;
-		}
-
-		@Override
-		public void render(DrawContext ctx, int mx, int my, float delta) {
-			int accent = themeColor();
-			int onColor = lerp(0xFF181822, accent, 0.45f);
-			ctx.fill(0, 0, width, height, 0x66000000);
-
-			for (int c = 0; c < CATS.length; c++) {
-				int x = PX[c], y = PY[c];
-				List<Mod> mods = modsOf(CATS[c]);
-				for (Mod m : mods) {
-					float ta = m.enabled ? 1f : 0f;
-					m.anim += (ta - m.anim) * 0.3f;
-					if (Math.abs(ta - m.anim) < 0.02f) m.anim = ta;
-					float to = m.open ? 1f : 0f;
-					m.openAnim += (to - m.openAnim) * 0.3f;
-					if (Math.abs(to - m.openAnim) < 0.02f) m.openAnim = to;
-				}
-				int h = panelHeight(mods);
-
-				rrect(ctx, x - 1, y - 1, x + PW + 1, y + h + 1, 0xFF2A2A38);
-				rrect(ctx, x, y, x + PW, y + h, 0xF0121219);
-				rrect(ctx, x, y, x + PW, y + HH, 0xFF1C1C28);
-				ctx.fill(x + 3, y + HH - 2, x + PW - 3, y + HH, accent);
-				int tw = textRenderer.getWidth(CATS[c]);
-				ctx.drawTextWithShadow(textRenderer, CATS[c], x + (PW - tw) / 2, y + 5, 0xFFFFFFFF);
-
-				int cy = y + HH;
-				for (Mod m : mods) {
-					boolean hover = mx >= x && mx <= x + PW && my >= cy && my < cy + MH;
-					int bg = lerp(hover ? 0xFF222230 : 0xFF181822, onColor, m.anim);
-					ctx.fill(x + 2, cy, x + PW - 2, cy + MH, bg);
-					if (m.enabled) ctx.fill(x + 2, cy, x + 4, cy + MH, accent);
-					int tcol = m.always ? 0xFFFFFFFF : lerp(0xFFAAAAAA, 0xFFFFFFFF, m.anim);
-					ctx.drawTextWithShadow(textRenderer, m.name, x + 8, cy + 4, tcol);
-					if (!m.sets.isEmpty())
-						ctx.drawTextWithShadow(textRenderer, m.open ? "v" : ">", x + PW - 12, cy + 4, 0xFF999999);
-					cy += MH;
-
-					int sh = (int) (m.openAnim * m.sets.size() * SH);
-					if (sh > 0) {
-						ctx.enableScissor(x, cy, x + PW, cy + sh);
-						int sy = cy;
-						for (Setting s : m.sets) {
-							ctx.fill(x + 2, sy, x + PW - 2, sy + SH, 0xFF0F0F16);
-							if (s.type == 1) {
-								float t = (s.v - s.min) / (s.max - s.min);
-								ctx.fill(x + 3, sy + 1, x + 3 + (int) ((PW - 6) * t), sy + SH - 1,
-										(accent & 0x00FFFFFF) | 0x88000000);
-							}
-							if (s.type == 0 && s.b) ctx.fill(x + 3, sy + 1, x + 5, sy + SH - 1, accent);
-							ctx.drawTextWithShadow(textRenderer, s.name, x + 8, sy + 3, 0xFFCCCCCC);
-							String val = s.shown();
-							int vw = textRenderer.getWidth(val);
-							int vc = s.type == 0 ? (s.b ? accent : 0xFF777777) : accent;
-							ctx.drawTextWithShadow(textRenderer, val, x + PW - 6 - vw, sy + 3, vc);
-							sy += SH;
-						}
-						ctx.disableScissor();
-					}
-					cy += sh;
-				}
-			}
-
-			String hint = "Tap name = on/off   |   > = settings   |   drag header = move   |   M = close";
-			int hw = textRenderer.getWidth(hint);
-			ctx.drawTextWithShadow(textRenderer, hint, (width - hw) / 2, height - 12, 0xFF888899);
-		}
-	}
-	}
+	
