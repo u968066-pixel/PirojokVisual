@@ -31,8 +31,8 @@ processResources {
 }
 
 tasks.withType(JavaCompile).configureEach {
-    options.release = 21
-    options.compilerArgs += ["-Xlint:-deprecation"]
+    options.release.set(21)
+    options.compilerArgs.add("-Xlint:-deprecation")
 }
 
 java {
