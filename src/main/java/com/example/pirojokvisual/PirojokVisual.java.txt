@@ -351,4 +351,94 @@ if (s.isDamageable()) { ctx.drawStackOverlay(tr, s, x, ay); int pct = 100 - s.ge
 			ctx.drawTextWithShadow(textRenderer, "Click name = on/off  |  + = settings  |  drag header = move  |  click search to type  |  M = close", (width - textRenderer.getWidth("Click name = on/off  |  + = settings  |  drag header = move  |  click search to type  |  M = close")) / 2, height - 12, 0xFF8FA3BD);
 		}
 	}
+
+// ============================================================
+//           HUD DRAG SYSTEM (добавлено отдельно)
+// ============================================================
+class HudDrag {
+
+    static final java.util.Map<String, int[]> POS = new java.util.HashMap<>();
+    static final java.util.Map<String, int[]> DEFAULT = new java.util.HashMap<>();
+    static boolean editorMode = false;
+    static String dragging = null;
+    static int dragDX, dragDY;
+
+    static void register(String name, int x, int y, int w, int h) {
+        int[] d = {x, y, w, h};
+        DEFAULT.put(name, d);
+        if (!POS.containsKey(name)) POS.put(name, new int[]{x, y, w, h});
+    }
+
+    static int[] pos(String name) {
+        int[] p = POS.get(name);
+        if (p == null) {
+            int[] d = DEFAULT.get(name);
+            if (d == null) return new int[]{0, 0, 10, 10};
+            p = new int[]{d[0], d[1], d[2], d[3]};
+            POS.put(name, p);
+        }
+        return p;
+    }
+
+    static void drawBox(net.minecraft.client.gui.DrawContext ctx, String name, int color) {
+        int[] p = pos(name);
+        ctx.fill(p[0] - 1, p[1] - 1, p[0] + p[2] + 1, p[1], color);
+        ctx.fill(p[0] - 1, p[1] + p[3], p[0] + p[2] + 1, p[1] + p[3] + 1, color);
+        ctx.fill(p[0] - 1, p[1] - 1, p[0], p[1] + p[3] + 1, color);
+        ctx.fill(p[0] + p[2], p[1] - 1, p[0] + p[2] + 1, p[1] + p[3] + 1, color);
+        ctx.fill(p[0], p[1], p[0] + p[2], p[1] + p[3], 0x30FFFFFF);
+    }
+
+    static boolean clicked(double mx, double my) {
+        if (!editorMode) return false;
+        for (var e : POS.entrySet()) {
+            int[] p = e.getValue();
+            if (mx >= p[0] && mx <= p[0] + p[2] && my >= p[1] && my <= p[1] + p[3]) {
+                dragging = e.getKey();
+                dragDX = (int) mx - p[0];
+                dragDY = (int) my - p[1];
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static boolean dragged(double mx, double my) {
+        if (dragging == null) return false;
+        int[] p = POS.get(dragging);
+        if (p == null) return false;
+        p[0] = (int) mx - dragDX;
+        p[1] = (int) my - dragDY;
+        return true;
+    }
+
+    static boolean released() {
+        if (dragging != null) {
+            dragging = null;
+            PirojokVisual.save();
+            return true;
+        }
+        return false;
+    }
+
+    static void saveAll(java.util.Properties p) {
+        for (var e : POS.entrySet()) {
+            int[] v = e.getValue();
+            p.setProperty("hud." + PirojokVisual.key(e.getKey()) + ".x", String.valueOf(v[0]));
+            p.setProperty("hud." + PirojokVisual.key(e.getKey()) + ".y", String.valueOf(v[1]));
+        }
+    }
+
+    static void loadAll(java.util.Properties p) {
+        for (var e : POS.entrySet()) {
+            try {
+                String x = p.getProperty("hud." + PirojokVisual.key(e.getKey()) + ".x");
+                String y = p.getProperty("hud." + PirojokVisual.key(e.getKey()) + ".y");
+                if (x != null && y != null) {
+                    e.getValue()[0] = Integer.parseInt(x);
+                    e.getValue()[1] = Integer.parseInt(y);
+                }
+            } catch (Exception ignored) {}
+        }
+    }
 }
