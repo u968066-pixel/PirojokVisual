@@ -227,7 +227,7 @@ public class PirojokVisual implements ClientModInitializer {
 		totemCount = countTotems(mc);
 	}
 
-	private void render(DrawContext ctx) { MinecraftClient mc = MinecraftClient.getInstance(); if (mc.player != null && !mc.options.hudHidden) ctx.draw(() -> draw(ctx, mc)); }
+	private void render(DrawContext ctx) { MinecraftClient mc = MinecraftClient.getInstance(); if (mc.player != null && !mc.options.hudHidden) draw(ctx, mc); }
 	private void key(DrawContext ctx, TextRenderer tr, int x, int y, int w, String label, boolean down, int col) { ctx.fill(x, y, x + w, y + 14, down ? ((col & 0x00FFFFFF) | 0xAA000000) : 0x80101018); ctx.drawTextWithShadow(tr, label, x + (w - tr.getWidth(label)) / 2, y + 3, down ? 0xFF000000 : 0xFFFFFFFF); }
 
 	private void draw(DrawContext ctx, MinecraftClient mc) {
