@@ -1,6 +1,9 @@
 package com.example.pirojokvisual;
 
 import net.minecraft.client.gui.DrawContext;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
@@ -65,30 +68,49 @@ public class HudDrag {
     public static boolean released() {
         if (dragging != null) {
             dragging = null;
-            PirojokVisual.save();
+            saveAllToFile();
             return true;
         }
         return false;
     }
 
-    public static void saveAll(Properties p) {
-        for (Map.Entry<String, int[]> e : POS.entrySet()) {
-            int[] v = e.getValue();
-            p.setProperty("hud." + PirojokVisual.key(e.getKey()) + ".x", String.valueOf(v[0]));
-            p.setProperty("hud." + PirojokVisual.key(e.getKey()) + ".y", String.valueOf(v[1]));
-        }
+    private static String safeKey(String s) { return s.replace(' ', '_'); }
+
+    private static Path filePath() {
+        return net.fabricmc.loader.api.FabricLoader.getInstance()
+            .getConfigDir().resolve("pirojokvisual.properties");
     }
 
-    public static void loadAll(Properties p) {
-        for (Map.Entry<String, int[]> e : POS.entrySet()) {
-            try {
-                String x = p.getProperty("hud." + PirojokVisual.key(e.getKey()) + ".x");
-                String y = p.getProperty("hud." + PirojokVisual.key(e.getKey()) + ".y");
+    public static void saveAllToFile() {
+        try {
+            Path f = filePath();
+            Properties p = new Properties();
+            if (Files.exists(f)) {
+                try (var in = Files.newInputStream(f)) { p.load(in); }
+            }
+            for (Map.Entry<String, int[]> e : POS.entrySet()) {
+                int[] v = e.getValue();
+                p.setProperty("hud." + safeKey(e.getKey()) + ".x", String.valueOf(v[0]));
+                p.setProperty("hud." + safeKey(e.getKey()) + ".y", String.valueOf(v[1]));
+            }
+            try (OutputStream o = Files.newOutputStream(f)) { p.store(o, "Pirozhok Visuals"); }
+        } catch (Exception ignored) {}
+    }
+
+    public static void loadAllFromFile() {
+        try {
+            Path f = filePath();
+            if (!Files.exists(f)) return;
+            Properties p = new Properties();
+            try (var in = Files.newInputStream(f)) { p.load(in); }
+            for (Map.Entry<String, int[]> e : POS.entrySet()) {
+                String x = p.getProperty("hud." + safeKey(e.getKey()) + ".x");
+                String y = p.getProperty("hud." + safeKey(e.getKey()) + ".y");
                 if (x != null && y != null) {
                     e.getValue()[0] = Integer.parseInt(x);
                     e.getValue()[1] = Integer.parseInt(y);
                 }
-            } catch (Exception ignored) {}
-        }
+            }
+        } catch (Exception ignored) {}
     }
-}
+                                               }
