@@ -15,6 +15,7 @@ import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.sound.PositionedSoundInstance;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.entity.EquipmentSlot;
+import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.item.ItemStack;
@@ -69,6 +70,7 @@ public class PirojokVisual implements ClientModInitializer {
 	static final Setting S_HSOUND = Setting.mode("Sound", 3, "Pling", "Bell", "Bit", "Orb", "Arrow"), S_HPITCH = Setting.slider("Pitch", 0.5f, 2.0f, 0.1f, 1.2f);
 	static final Setting S_COLOR = Setting.mode("Color", 2, "White", "Green", "Cyan", "Pink", "Orange", "Rainbow");
 	static final Setting S_SOUND = Setting.bool("Sounds", true), S_ROUND = Setting.slider("Rounding", 0, 10, 1, 5), S_BLUR = Setting.bool("Blur", true);
+	static final Setting S_BLUR_AMT = Setting.slider("Motion Blur", 0, 10, 1, 5);
 
 	static final Mod WATERMARK = new Mod("Watermark", "HUD", true, false), COORDS = new Mod("Coordinates", "HUD", true, false);
 	static final Mod FPS = new Mod("FPS", "HUD", true, false), PING = new Mod("Ping", "HUD", true, false), CPS = new Mod("CPS", "HUD", true, false);
@@ -79,11 +81,20 @@ public class PirojokVisual implements ClientModInitializer {
 	static final Mod LOWHP = new Mod("Low HP Alert", "Visuals", false, false).add(S_LOWHP), SPRINT = new Mod("Auto Sprint", "Player", false, false);
 	static final Mod HITSOUND = new Mod("Hit Sound", "Player", false, false).add(S_HSOUND).add(S_HPITCH), IFACE = new Mod("Interface", "Client", true, true).add(S_COLOR).add(S_SOUND).add(S_ROUND).add(S_BLUR);
 	static final Mod LITE = new Mod("Lite Mode", "Client", false, false);
+	static final Mod TARGET_HUD = new Mod("TargetHUD", "Combat", false, false);
+	static final Mod AUTO_RESPAWN = new Mod("Auto Respawn", "Player", false, false);
+	static final Mod SPRINT_TOGGLE = new Mod("Sprint Toggle", "Player", false, false);
+	static final Mod SHULKER_PREVIEW = new Mod("Shulker Preview", "Player", false, false);
+	static final Mod DAMAGE_TINT = new Mod("Damage Tint", "Visuals", false, false);
+	static final Mod CUSTOM_SKY = new Mod("Custom Sky", "Visuals", false, false);
+	static final Mod MOTION_BLUR = new Mod("Motion Blur", "Visuals", false, false).add(S_BLUR_AMT);
+	static final Mod CHINA_HAT = new Mod("China Hat", "Visuals", false, false);
+	static final Mod HIT_COLOR = new Mod("Hit Color", "Visuals", false, false);
 
-	static final Mod[] ALL = {WATERMARK, COORDS, FPS, PING, CPS, SPEED, TIME, TOTEMS, ARMOR, EFFECTS, KEYS, ARRAYLIST, NIGHT, BRIGHT, ZOOM, CROSS, LOWHP, SPRINT, HITSOUND, IFACE, LITE};
-	static final String[] CATS = {"HUD", "Visuals", "Player", "Client"};
+	static final Mod[] ALL = {WATERMARK, COORDS, FPS, PING, CPS, SPEED, TIME, TOTEMS, ARMOR, EFFECTS, KEYS, ARRAYLIST, NIGHT, BRIGHT, ZOOM, CROSS, LOWHP, SPRINT, HITSOUND, IFACE, LITE, TARGET_HUD, AUTO_RESPAWN, SPRINT_TOGGLE, SHULKER_PREVIEW, DAMAGE_TINT, CUSTOM_SKY, MOTION_BLUR, CHINA_HAT, HIT_COLOR};
+	static final String[] CATS = {"HUD", "Visuals", "Player", "Combat", "Client"};
 	static final int[] COLORS = {0xFFFFFF, 0x55FF55, 0x55FFFF, 0xFF77CC, 0xFFAA00, 0};
-	static final int UNSET = Integer.MIN_VALUE; static final int[] PX = new int[4], PY = new int[4];
+	static final int UNSET = Integer.MIN_VALUE; static final int[] PX = new int[5], PY = new int[5];
 	static boolean hudVisible = true; static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
 
 	static { Arrays.fill(PX, UNSET); Arrays.fill(PY, UNSET); }
@@ -99,6 +110,7 @@ public class PirojokVisual implements ClientModInitializer {
 				for (Setting s : m.sets) p.setProperty("s." + key(m.name) + "." + key(s.name), s.ser());
 			}
 			for (int i = 0; i < CATS.length; i++) { p.setProperty("px" + i, String.valueOf(PX[i])); p.setProperty("py" + i, String.valueOf(PY[i])); }
+			HudDrag.saveAll(p);
 			try (OutputStream o = Files.newOutputStream(cfgPath())) { p.store(o, "Pirozhok Visuals"); }
 		} catch (Exception ignored) {}
 	}
@@ -115,119 +127,134 @@ public class PirojokVisual implements ClientModInitializer {
 			for (int c = 0; c < CATS.length; c++) {
 				try { String x = p.getProperty("px" + c), y = p.getProperty("py" + c); if (x != null && y != null) { PX[c] = Integer.parseInt(x); PY[c] = Integer.parseInt(y); } } catch (Exception ignored) {}
 			}
+			HudDrag.loadAll(p);
 		} catch (Exception ignored) {}
 	}
-
-	static int themeColor() {
-		if (S_COLOR.idx == COLORS.length - 1) {
-			double t = (System.currentTimeMillis() % 4000) / 4000.0 * Math.PI * 2;
-			return 0xFF000000 | ((int) (127 + 127 * Math.sin(t)) << 16) | ((int) (127 + 127 * Math.sin(t + 2.094)) << 8) | (int) (127 + 127 * Math.sin(t + 4.188));
-		}
-		return 0xFF000000 | COLORS[S_COLOR.idx];
-	}
-
-	static void click(boolean on) { save(); if (S_SOUND.b) MinecraftClient.getInstance().getSoundManager().play(PositionedSoundInstance.master(SoundEvents.BLOCK_NOTE_BLOCK_PLING, on ? 1.7f : 0.7f)); }
-	static void openSound() { if (S_SOUND.b) MinecraftClient.getInstance().getSoundManager().play(PositionedSoundInstance.master(SoundEvents.BLOCK_NOTE_BLOCK_CHIME, 1.2f)); }
-
-	static void playHit() {
-		var sm = MinecraftClient.getInstance().getSoundManager(); float p = S_HPITCH.v;
-		switch (S_HSOUND.idx) {
-			case 0 -> sm.play(PositionedSoundInstance.master(SoundEvents.BLOCK_NOTE_BLOCK_PLING, p));
-			case 1 -> sm.play(PositionedSoundInstance.master(SoundEvents.BLOCK_NOTE_BLOCK_BELL, p));
-			case 2 -> sm.play(PositionedSoundInstance.master(SoundEvents.BLOCK_NOTE_BLOCK_BIT, p));
-			case 3 -> sm.play(PositionedSoundInstance.master(SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, p));
-			default -> sm.play(PositionedSoundInstance.master(SoundEvents.ENTITY_ARROW_HIT_PLAYER, p));
-		}
-	}
-
-	private KeyBinding menuKey, hudKey, nightKey, zoomKey;
-	private boolean zoomActive = false, wasNight = false, wasBright = false, lastAttack = false;
-	private int savedFov = 70; private float curFov = 70f; private double savedGamma = 0.5;
-	private final List<Long> clicks = new ArrayList<>();
-	private int tickCount = 0; private double prevX, prevZ; private float speed = 0f;
-	private String[] infoLines = new String[0], effLines = new String[0], arrNames = new String[0];
-	private int[] infoW = new int[0], effW = new int[0], arrW = new int[0];
-	private int totemCount = 0; private ItemStack totemStack;
-
-	@Override
-	public void onInitializeClient() {
-		load(); menuKey = reg("Open menu", GLFW.GLFW_KEY_M); hudKey = reg("HUD on/off", GLFW.GLFW_KEY_H);
-		nightKey = reg("Night vision", GLFW.GLFW_KEY_N); zoomKey = reg("Zoom (hold)", GLFW.GLFW_KEY_C);
-		ClientTickEvents.END_CLIENT_TICK.register(this::tick); HudRenderCallback.EVENT.register((ctx, tc) -> render(ctx));
-		AttackEntityCallback.EVENT.register((player, world, hand, entity, hit) -> { if (world.isClient && HITSOUND.enabled) playHit(); return ActionResult.PASS; });
-	}
-
-	private KeyBinding reg(String name, int key) { return KeyBindingHelper.registerKeyBinding(new KeyBinding(name, InputUtil.Type.KEYSYM, key, CAT)); }
-
-	private void tick(MinecraftClient mc) {
-		if (mc.player == null) return;
-		while (menuKey.wasPressed()) { if (mc.currentScreen == null) { openSound(); mc.setScreen(new MenuScreen()); } }
-		while (hudKey.wasPressed()) { hudVisible = !hudVisible; click(hudVisible); }
-		while (nightKey.wasPressed()) { NIGHT.enabled = !NIGHT.enabled; click(NIGHT.enabled); }
-
-		long now = System.currentTimeMillis(); boolean atk = mc.options.attackKey.isPressed();
-		if (atk && !lastAttack) clicks.add(now); lastAttack = atk; clicks.removeIf(t -> now - t > 1000);
-		double dx = mc.player.getX() - prevX, dz = mc.player.getZ() - prevZ; prevX = mc.player.getX(); prevZ = mc.player.getZ();
-		speed = speed * 0.8f + (float) (Math.sqrt(dx * dx + dz * dz) * 20) * 0.2f;
-		if (++tickCount % (LITE.enabled ? 10 : 2) == 0) refresh(mc);
-
-		if (NIGHT.enabled) {
-			StatusEffectInstance e = mc.player.getStatusEffect(StatusEffects.NIGHT_VISION);
-			if (e == null || e.getDuration() < 220) mc.player.addStatusEffect(new StatusEffectInstance(StatusEffects.NIGHT_VISION, 400, 0, false, false, false));
-		} else if (wasNight) { mc.player.removeStatusEffect(StatusEffects.NIGHT_VISION); }
-		wasNight = NIGHT.enabled;
-
-		var gamma = mc.options.getGamma();
-		if (BRIGHT.enabled != wasBright) {
-			if (BRIGHT.enabled) { double g = gamma.getValue(); savedGamma = g >= 1.0 ? 0.5 : g; gamma.setValue(1.0); }
-			else { gamma.setValue(savedGamma); } wasBright = BRIGHT.enabled;
-		}
-		if (SPRINT.enabled && mc.options.forwardKey.isPressed() && !mc.player.isSneaking() && !mc.player.horizontalCollision && mc.player.getHungerManager().getFoodLevel() > 6) { mc.player.setSprinting(true); }
-
-		var fov = mc.options.getFov(); boolean held = ZOOM.enabled && mc.currentScreen == null && zoomKey.isPressed();
-		if (held && !zoomActive) { savedFov = fov.getValue(); curFov = savedFov; zoomActive = true; }
-		if (zoomActive) {
-			float target = held ? S_ZOOM.v : savedFov; curFov = S_SMOOTH.b ? curFov + (target - curFov) * 0.4f : target; fov.setValue(Math.round(curFov));
-			if (!held && Math.abs(curFov - savedFov) < 1f) { fov.setValue(savedFov); zoomActive = false; }
-		}
-				 }
 	
-	private int countTotems(MinecraftClient mc) {
-		int n = 0; for (int i = 0; i < 36; i++) { ItemStack s = mc.player.getInventory().getStack(i); if (s.isOf(Items.TOTEM_OF_UNDYING)) n += s.getCount(); }
-		ItemStack off = mc.player.getOffHandStack(); if (off.isOf(Items.TOTEM_OF_UNDYING)) n += off.getCount(); return n;
+static int themeColor() {
+	if (S_COLOR.idx == COLORS.length - 1) {
+		double t = (System.currentTimeMillis() % 4000) / 4000.0 * Math.PI * 2;
+		return 0xFF000000 | ((int) (127 + 127 * Math.sin(t)) << 16) | ((int) (127 + 127 * Math.sin(t + 2.094)) << 8) | (int) (127 + 127 * Math.sin(t + 4.188));
 	}
+	return 0xFF000000 | COLORS[S_COLOR.idx];
+}
 
-	private void refresh(MinecraftClient mc) {
-		TextRenderer tr = mc.textRenderer; var p = mc.player; List<String> info = new ArrayList<>();
-		if (COORDS.enabled) info.add(String.format("XYZ: %.1f %.1f %.1f", p.getX(), p.getY(), p.getZ()));
-		if (FPS.enabled) info.add("FPS: " + mc.getCurrentFps());
-		if (PING.enabled) {
-			int ping = 0; if (mc.getNetworkHandler() != null) { PlayerListEntry pe = mc.getNetworkHandler().getPlayerListEntry(p.getUuid()); if (pe != null) ping = pe.getLatency(); }
-			info.add("Ping: " + ping + " ms");
-		}
-		if (CPS.enabled) info.add("CPS: " + clicks.size()); if (SPEED.enabled) info.add(String.format("Speed: %.1f b/s", speed));
-		if (TIME.enabled) info.add(LocalTime.now().format(TIME_FMT));
-		infoLines = info.toArray(new String[0]); infoW = new int[infoLines.length]; for (int i = 0; i < infoLines.length; i++) infoW[i] = tr.getWidth(infoLines[i]);
+static void click(boolean on) { save(); if (S_SOUND.b) MinecraftClient.getInstance().getSoundManager().play(PositionedSoundInstance.master(SoundEvents.BLOCK_NOTE_BLOCK_PLING, on ? 1.7f : 0.7f)); }
+static void openSound() { if (S_SOUND.b) MinecraftClient.getInstance().getSoundManager().play(PositionedSoundInstance.master(SoundEvents.BLOCK_NOTE_BLOCK_CHIME, 1.2f)); }
 
-		List<String> eff = new ArrayList<>();
-		if (EFFECTS.enabled) {
-			for (StatusEffectInstance e : p.getStatusEffects()) {
-				if (NIGHT.enabled && e.getEffectType().equals(StatusEffects.NIGHT_VISION)) continue;
-				String n = e.getEffectType().value().getName().getString(); if (e.getAmplifier() > 0) n += " " + (e.getAmplifier() + 1);
-				int sec = e.getDuration() / 20; eff.add(n + "  " + (e.isInfinite() ? "inf" : String.format("%d:%02d", sec / 60, sec % 60)));
-			}
-		}
-		effLines = eff.toArray(new String[0]); effW = new int[effLines.length]; for (int i = 0; i < effLines.length; i++) effW[i] = tr.getWidth(effLines[i]);
-
-		List<String> names = new ArrayList<>();
-		if (ARRAYLIST.enabled) {
-			for (Mod m : ALL) { if (m.always || !m.enabled || m.cat.equals("HUD")) continue; if (m == ZOOM && !zoomActive) continue; names.add(m.name); }
-			if (!LITE.enabled) names.sort((a, b) -> tr.getWidth(b) - tr.getWidth(a));
-		}
-		arrNames = names.toArray(new String[0]); arrW = new int[arrNames.length]; for (int i = 0; i < arrNames.length; i++) arrW[i] = tr.getWidth(arrNames[i]);
-		totemCount = countTotems(mc);
+static void playHit() {
+	var sm = MinecraftClient.getInstance().getSoundManager(); float p = S_HPITCH.v;
+	switch (S_HSOUND.idx) {
+		case 0 -> sm.play(PositionedSoundInstance.master(SoundEvents.BLOCK_NOTE_BLOCK_PLING, p));
+		case 1 -> sm.play(PositionedSoundInstance.master(SoundEvents.BLOCK_NOTE_BLOCK_BELL, p));
+		case 2 -> sm.play(PositionedSoundInstance.master(SoundEvents.BLOCK_NOTE_BLOCK_BIT, p));
+		case 3 -> sm.play(PositionedSoundInstance.master(SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, p));
+		default -> sm.play(PositionedSoundInstance.master(SoundEvents.ENTITY_ARROW_HIT_PLAYER, p));
 	}
+}
 
+private KeyBinding menuKey, hudKey, nightKey, zoomKey;
+private boolean zoomActive = false, wasNight = false, wasBright = false, lastAttack = false;
+private int savedFov = 70; private float curFov = 70f; private double savedGamma = 0.5;
+private final List<Long> clicks = new ArrayList<>();
+private int tickCount = 0; private double prevX, prevZ; private float speed = 0f;
+private String[] infoLines = new String[0], effLines = new String[0], arrNames = new String[0];
+private int[] infoW = new int[0], effW = new int[0], arrW = new int[0];
+private int totemCount = 0; private ItemStack totemStack;
+
+@Override
+public void onInitializeClient() {
+	load();
+	menuKey = reg("Open menu", GLFW.GLFW_KEY_M); hudKey = reg("HUD on/off", GLFW.GLFW_KEY_H);
+	nightKey = reg("Night vision", GLFW.GLFW_KEY_N); zoomKey = reg("Zoom (hold)", GLFW.GLFW_KEY_C);
+	HudDrag.register("Watermark", 4, 4, 90, 14);
+	HudDrag.register("Coordinates", 4, 22, 110, 11);
+	HudDrag.register("FPS", 4, 34, 70, 11);
+	HudDrag.register("Ping", 4, 46, 90, 11);
+	HudDrag.register("CPS", 4, 58, 70, 11);
+	HudDrag.register("Speed", 4, 70, 100, 11);
+	HudDrag.register("Time", 4, 82, 60, 11);
+	HudDrag.register("Effects", 4, 96, 130, 11);
+	HudDrag.register("ArrayList", 300, 4, 100, 11);
+	HudDrag.register("Totems", 0, 0, 20, 20);
+	HudDrag.register("Armor", 0, 0, 90, 20);
+	ClientTickEvents.END_CLIENT_TICK.register(this::tick); HudRenderCallback.EVENT.register((ctx, tc) -> render(ctx));
+	AttackEntityCallback.EVENT.register((player, world, hand, entity, hit) -> { if (world.isClient && HITSOUND.enabled) playHit(); return ActionResult.PASS; });
+}
+
+private KeyBinding reg(String name, int key) { return KeyBindingHelper.registerKeyBinding(new KeyBinding(name, InputUtil.Type.KEYSYM, key, CAT)); }
+
+private void tick(MinecraftClient mc) {
+	if (mc.player == null) return;
+	while (menuKey.wasPressed()) { if (mc.currentScreen == null) { openSound(); mc.setScreen(new MenuScreen()); } }
+	while (hudKey.wasPressed()) { hudVisible = !hudVisible; click(hudVisible); }
+	while (nightKey.wasPressed()) { NIGHT.enabled = !NIGHT.enabled; click(NIGHT.enabled); }
+
+	long now = System.currentTimeMillis(); boolean atk = mc.options.attackKey.isPressed();
+	if (atk && !lastAttack) clicks.add(now); lastAttack = atk; clicks.removeIf(t -> now - t > 1000);
+	double dx = mc.player.getX() - prevX, dz = mc.player.getZ() - prevZ; prevX = mc.player.getX(); prevZ = mc.player.getZ();
+	speed = speed * 0.8f + (float) (Math.sqrt(dx * dx + dz * dz) * 20) * 0.2f;
+	if (++tickCount % (LITE.enabled ? 10 : 2) == 0) refresh(mc);
+
+	if (NIGHT.enabled) {
+		StatusEffectInstance e = mc.player.getStatusEffect(StatusEffects.NIGHT_VISION);
+		if (e == null || e.getDuration() < 220) mc.player.addStatusEffect(new StatusEffectInstance(StatusEffects.NIGHT_VISION, 400, 0, false, false, false));
+	} else if (wasNight) { mc.player.removeStatusEffect(StatusEffects.NIGHT_VISION); }
+	wasNight = NIGHT.enabled;
+
+	var gamma = mc.options.getGamma();
+	if (BRIGHT.enabled != wasBright) {
+		if (BRIGHT.enabled) { double g = gamma.getValue(); savedGamma = g >= 1.0 ? 0.5 : g; gamma.setValue(1.0); }
+		else { gamma.setValue(savedGamma); } wasBright = BRIGHT.enabled;
+	}
+	if (SPRINT.enabled && mc.options.forwardKey.isPressed() && !mc.player.isSneaking() && !mc.player.horizontalCollision && mc.player.getHungerManager().getFoodLevel() > 6) { mc.player.setSprinting(true); }
+
+	if (AUTO_RESPAWN.enabled && mc.player.isDead()) { mc.player.requestRespawn(); }
+
+	var fov = mc.options.getFov(); boolean held = ZOOM.enabled && mc.currentScreen == null && zoomKey.isPressed();
+	if (held && !zoomActive) { savedFov = fov.getValue(); curFov = savedFov; zoomActive = true; }
+	if (zoomActive) {
+		float target = held ? S_ZOOM.v : savedFov; curFov = S_SMOOTH.b ? curFov + (target - curFov) * 0.4f : target; fov.setValue(Math.round(curFov));
+		if (!held && Math.abs(curFov - savedFov) < 1f) { fov.setValue(savedFov); zoomActive = false; }
+	}
+}
+
+private int countTotems(MinecraftClient mc) {
+	int n = 0; for (int i = 0; i < 36; i++) { ItemStack s = mc.player.getInventory().getStack(i); if (s.isOf(Items.TOTEM_OF_UNDYING)) n += s.getCount(); }
+	ItemStack off = mc.player.getOffHandStack(); if (off.isOf(Items.TOTEM_OF_UNDYING)) n += off.getCount(); return n;
+}
+
+private void refresh(MinecraftClient mc) {
+	TextRenderer tr = mc.textRenderer; var p = mc.player; List<String> info = new ArrayList<>();
+	if (COORDS.enabled) info.add(String.format("XYZ: %.1f %.1f %.1f", p.getX(), p.getY(), p.getZ()));
+	if (FPS.enabled) info.add("FPS: " + mc.getCurrentFps());
+	if (PING.enabled) {
+		int ping = 0; if (mc.getNetworkHandler() != null) { PlayerListEntry pe = mc.getNetworkHandler().getPlayerListEntry(p.getUuid()); if (pe != null) ping = pe.getLatency(); }
+		info.add("Ping: " + ping + " ms");
+	}
+	if (CPS.enabled) info.add("CPS: " + clicks.size()); if (SPEED.enabled) info.add(String.format("Speed: %.1f b/s", speed));
+	if (TIME.enabled) info.add(LocalTime.now().format(TIME_FMT));
+	infoLines = info.toArray(new String[0]); infoW = new int[infoLines.length]; for (int i = 0; i < infoLines.length; i++) infoW[i] = tr.getWidth(infoLines[i]);
+
+	List<String> eff = new ArrayList<>();
+	if (EFFECTS.enabled) {
+		for (StatusEffectInstance e : p.getStatusEffects()) {
+			if (NIGHT.enabled && e.getEffectType().equals(StatusEffects.NIGHT_VISION)) continue;
+			String n = e.getEffectType().value().getName().getString(); if (e.getAmplifier() > 0) n += " " + (e.getAmplifier() + 1);
+			int sec = e.getDuration() / 20; eff.add(n + "  " + (e.isInfinite() ? "inf" : String.format("%d:%02d", sec / 60, sec % 60)));
+		}
+	}
+	effLines = eff.toArray(new String[0]); effW = new int[effLines.length]; for (int i = 0; i < effLines.length; i++) effW[i] = tr.getWidth(effLines[i]);
+
+	List<String> names = new ArrayList<>();
+	if (ARRAYLIST.enabled) {
+		for (Mod m : ALL) { if (m.always || !m.enabled || m.cat.equals("HUD")) continue; if (m == ZOOM && !zoomActive) continue; names.add(m.name); }
+		if (!LITE.enabled) names.sort((a, b) -> tr.getWidth(b) - tr.getWidth(a));
+	}
+	arrNames = names.toArray(new String[0]); arrW = new int[arrNames.length]; for (int i = 0; i < arrNames.length; i++) arrW[i] = tr.getWidth(arrNames[i]);
+	totemCount = countTotems(mc);
+}
+	
 	private void render(DrawContext ctx) { MinecraftClient mc = MinecraftClient.getInstance(); if (mc.player != null && !mc.options.hudHidden) draw(ctx, mc); }
 	private void key(DrawContext ctx, TextRenderer tr, int x, int y, int w, String label, boolean down, int col) { ctx.fill(x, y, x + w, y + 14, down ? ((col & 0x00FFFFFF) | 0xAA000000) : 0x80101018); ctx.drawTextWithShadow(tr, label, x + (w - tr.getWidth(label)) / 2, y + 3, down ? 0xFF000000 : 0xFFFFFFFF); }
 
@@ -242,31 +269,55 @@ public class PirojokVisual implements ClientModInitializer {
 			int c = ((int) (60 + 50 * Math.sin(System.currentTimeMillis() / 180.0)) << 24) | 0xFF2020; int t = 10;
 			ctx.fill(0, 0, sw, t, c); ctx.fill(0, sh - t, sw, sh, c); ctx.fill(0, t, t, sh - t, c); ctx.fill(sw - t, t, sw, sh - t, c);
 		}
+		if (DAMAGE_TINT.enabled && mc.player.hurtTime > 0) {
+			int a = Math.min(120, mc.player.hurtTime * 6);
+			ctx.fill(0, 0, sw, sh, (a << 24) | 0xFF0000);
+		}
 		if (!hudVisible) return;
-		int y = 4;
+		int[] wp = HudDrag.pos("Watermark");
 		if (WATERMARK.enabled) {
 			String wm = "Pirozhok  |  " + mc.getCurrentFps() + " FPS  |  0 ms";
 			int wmw = tr.getWidth(wm);
-			ctx.fill(4, y, 8 + wmw + 8, y + 14, 0xAA101018);
-			ctx.fill(4, y, 6, y + 14, col);
-			ctx.drawTextWithShadow(tr, wm, 10, y + 3, col);
-			y += 18;
+			ctx.fill(wp[0], wp[1], wp[0] + wmw + 16, wp[1] + 14, 0xAA101018);
+			ctx.fill(wp[0], wp[1], wp[0] + 2, wp[1] + 14, col);
+			ctx.drawTextWithShadow(tr, wm, wp[0] + 6, wp[1] + 3, col);
 		}
-for (int i = 0; i < infoLines.length; i++) { ctx.fill(4, y, 4 + infoW[i] + 8, y + 11, 0x80101018); ctx.fill(4, y, 5, y + 11, col); ctx.drawTextWithShadow(tr, infoLines[i], 8, y + 2, 0xFFFFFFFF); y += 12; }
-if (effLines.length > 0) y += 2;
-for (int i = 0; i < effLines.length; i++) { ctx.fill(4, y, 4 + effW[i] + 8, y + 11, 0x80101018); ctx.fill(4, y, 5, y + 11, 0xFFAA55FF); ctx.drawTextWithShadow(tr, effLines[i], 8, y + 2, 0xFFFFFFFF); y += 12; }
-if (KEYS.enabled) { int kx = 4, ky = sh - 62; key(ctx, tr, kx + 16, ky, 14, "W", mc.options.forwardKey.isPressed(), col); key(ctx, tr, kx, ky + 16, 14, "A", mc.options.leftKey.isPressed(), col); key(ctx, tr, kx + 16, ky + 16, 14, "S", mc.options.backKey.isPressed(), col); key(ctx, tr, kx + 32, ky + 16, 14, "D", mc.options.rightKey.isPressed(), col); key(ctx, tr, kx, ky + 32, 46, "Space", mc.options.jumpKey.isPressed(), col); }
-int ry = 4;
-for (int i = 0; i < arrNames.length; i++) { int x1 = sw - arrW[i] - 8; ctx.fill(x1, ry, sw, ry + 11, 0x80101018); ctx.fill(sw - 2, ry, sw, ry + 11, col); ctx.drawTextWithShadow(tr, arrNames[i], x1 + 3, ry + 2, col); ry += 12; }
-if (TOTEMS.enabled) { if (totemStack == null) totemStack = new ItemStack(Items.TOTEM_OF_UNDYING); int ix = sw / 2 - 91 - 19, iy = sh - 42; ctx.drawItem(totemStack, ix, iy); String n = String.valueOf(totemCount); ctx.drawTextWithShadow(tr, n, ix - tr.getWidth(n) - 2, iy + 4, totemCount > 0 ? 0xFFFFFFFF : 0xFFFF5555); }
-if (ARMOR.enabled) {
-EquipmentSlot[] slots = {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}; int ax = sw / 2 + 91 - 4 * 20, ay = sh - 75;
-for (int i = 0; i < 4; i++) {
-ItemStack s = mc.player.getEquippedStack(slots[i]); if (s.isEmpty()) continue; int x = ax + i * 20; ctx.drawItem(s, x, ay);
-if (s.isDamageable()) { ctx.drawStackOverlay(tr, s, x, ay); int pct = 100 - s.getDamage() * 100 / Math.max(1, s.getMaxDamage()); String t = pct + "%"; ctx.drawTextWithShadow(tr, t, x + 8 - tr.getWidth(t) / 2, ay + 17, pct > 50 ? 0xFF55FF55 : (pct > 20 ? 0xFFFFAA00 : 0xFFFF5555)); }
-}
-}
-}
+		int[] cp = HudDrag.pos("Coordinates"); int cy2 = cp[1];
+		if (COORDS.enabled) { String s = String.format("XYZ: %.1f %.1f %.1f", mc.player.getX(), mc.player.getY(), mc.player.getZ()); int w = tr.getWidth(s); ctx.fill(cp[0], cy2, cp[0] + w + 8, cy2 + 11, 0x80101018); ctx.fill(cp[0], cy2, cp[0] + 1, cy2 + 11, col); ctx.drawTextWithShadow(tr, s, cp[0] + 4, cy2 + 2, 0xFFFFFFFF); }
+		int[] fp = HudDrag.pos("FPS");
+		if (FPS.enabled) { String s = "FPS: " + mc.getCurrentFps(); int w = tr.getWidth(s); ctx.fill(fp[0], fp[1], fp[0] + w + 8, fp[1] + 11, 0x80101018); ctx.fill(fp[0], fp[1], fp[0] + 1, fp[1] + 11, col); ctx.drawTextWithShadow(tr, s, fp[0] + 4, fp[1] + 2, 0xFFFFFFFF); }
+		int[] pp = HudDrag.pos("Ping");
+		if (PING.enabled) { int ping = 0; if (mc.getNetworkHandler() != null) { PlayerListEntry pe = mc.getNetworkHandler().getPlayerListEntry(mc.player.getUuid()); if (pe != null) ping = pe.getLatency(); } String s = "Ping: " + ping + " ms"; int w = tr.getWidth(s); ctx.fill(pp[0], pp[1], pp[0] + w + 8, pp[1] + 11, 0x80101018); ctx.fill(pp[0], pp[1], pp[0] + 1, pp[1] + 11, col); ctx.drawTextWithShadow(tr, s, pp[0] + 4, pp[1] + 2, 0xFFFFFFFF); }
+		int[] cpsp = HudDrag.pos("CPS");
+		if (CPS.enabled) { String s = "CPS: " + clicks.size(); int w = tr.getWidth(s); ctx.fill(cpsp[0], cpsp[1], cpsp[0] + w + 8, cpsp[1] + 11, 0x80101018); ctx.fill(cpsp[0], cpsp[1], cpsp[0] + 1, cpsp[1] + 11, col); ctx.drawTextWithShadow(tr, s, cpsp[0] + 4, cpsp[1] + 2, 0xFFFFFFFF); }
+		int[] sp = HudDrag.pos("Speed");
+		if (SPEED.enabled) { String s = String.format("Speed: %.1f b/s", speed); int w = tr.getWidth(s); ctx.fill(sp[0], sp[1], sp[0] + w + 8, sp[1] + 11, 0x80101018); ctx.fill(sp[0], sp[1], sp[0] + 1, sp[1] + 11, col); ctx.drawTextWithShadow(tr, s, sp[0] + 4, sp[1] + 2, 0xFFFFFFFF); }
+		int[] tp = HudDrag.pos("Time");
+		if (TIME.enabled) { String s = LocalTime.now().format(TIME_FMT); int w = tr.getWidth(s); ctx.fill(tp[0], tp[1], tp[0] + w + 8, tp[1] + 11, 0x80101018); ctx.fill(tp[0], tp[1], tp[0] + 1, tp[1] + 11, col); ctx.drawTextWithShadow(tr, s, tp[0] + 4, tp[1] + 2, 0xFFFFFFFF); }
+		int[] ep = HudDrag.pos("Effects");
+		if (effLines.length > 0) { for (int i = 0; i < effLines.length; i++) { ctx.fill(ep[0], ep[1] + i * 12, ep[0] + effW[i] + 8, ep[1] + i * 12 + 11, 0x80101018); ctx.fill(ep[0], ep[1] + i * 12, ep[0] + 1, ep[1] + i * 12 + 11, 0xFFAA55FF); ctx.drawTextWithShadow(tr, effLines[i], ep[0] + 4, ep[1] + i * 12 + 2, 0xFFFFFFFF); } }
+		int[] ap = HudDrag.pos("ArrayList");
+		for (int i = 0; i < arrNames.length; i++) { int x1 = ap[0] + ap[2] - arrW[i] - 8; ctx.fill(x1, ap[1] + i * 12, ap[0] + ap[2], ap[1] + i * 12 + 11, 0x80101018); ctx.fill(ap[0] + ap[2] - 2, ap[1] + i * 12, ap[0] + ap[2], ap[1] + i * 12 + 11, col); ctx.drawTextWithShadow(tr, arrNames[i], x1 + 3, ap[1] + i * 12 + 2, col); }
+		int[] kp = HudDrag.pos("Keystrokes");
+		if (KEYS.enabled) { int kx = kp[0], ky = kp[1]; key(ctx, tr, kx + 16, ky, 14, "W", mc.options.forwardKey.isPressed(), col); key(ctx, tr, kx, ky + 16, 14, "A", mc.options.leftKey.isPressed(), col); key(ctx, tr, kx + 16, ky + 16, 14, "S", mc.options.backKey.isPressed(), col); key(ctx, tr, kx + 32, ky + 16, 14, "D", mc.options.rightKey.isPressed(), col); key(ctx, tr, kx, ky + 32, 46, "Space", mc.options.jumpKey.isPressed(), col); }
+		int[] totp = HudDrag.pos("Totems");
+		if (TOTEMS.enabled) { if (totemStack == null) totemStack = new ItemStack(Items.TOTEM_OF_UNDYING); int ix = totp[0], iy = totp[1]; ctx.drawItem(totemStack, ix, iy); String n = String.valueOf(totemCount); ctx.drawTextWithShadow(tr, n, ix - tr.getWidth(n) - 2, iy + 4, totemCount > 0 ? 0xFFFFFFFF : 0xFFFF5555); }
+		int[] arp = HudDrag.pos("Armor");
+		if (ARMOR.enabled) { EquipmentSlot[] slots = {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}; for (int i = 0; i < 4; i++) { ItemStack s = mc.player.getEquippedStack(slots[i]); if (s.isEmpty()) continue; int x = arp[0] + i * 20; ctx.drawItem(s, x, arp[1]); if (s.isDamageable()) { ctx.drawStackOverlay(tr, s, x, arp[1]); int pct = 100 - s.getDamage() * 100 / Math.max(1, s.getMaxDamage()); String t = pct + "%"; ctx.drawTextWithShadow(tr, t, x + 8 - tr.getWidth(t) / 2, arp[1] + 17, pct > 50 ? 0xFF55FF55 : (pct > 20 ? 0xFFFFAA00 : 0xFFFF5555)); } } }
+		if (TARGET_HUD.enabled && mc.targetedEntity instanceof LivingEntity le) {
+			String name = le.getName().getString();
+			float hp = le.getHealth(), max = le.getMaxHealth();
+			double dist = mc.player.distanceTo(le);
+			int x = sw / 2 - 60, y = sh / 2 + 20;
+			ctx.fill(x - 2, y - 2, x + 122, y + 40, 0xAA101018);
+			ctx.fill(x - 2, y - 2, x + 122, y, col);
+			ctx.drawTextWithShadow(tr, name, x + 2, y + 4, 0xFFFFFFFF);
+			ctx.fill(x, y + 18, x + 118, y + 24, 0xFF200000);
+			ctx.fill(x, y + 18, x + (int) (118 * (hp / max)), y + 24, 0xFFFF2222);
+			ctx.drawTextWithShadow(tr, String.format("%.1f/%.1f", hp, max), x + 2, y + 26, 0xFFFFFFFF);
+			ctx.drawTextWithShadow(tr, String.format("%.1fm", dist), x + 90, y + 26, 0xFFAAAAAA);
+		}
+	}
 
 	static class MenuScreen extends Screen {
 		static final int PW = 112, HH = 20, MH = 16, SH = 16, GAP = 8; int dragPanel = -1, dragDX, dragDY, sliderX; Setting dragSlider = null; String query = ""; boolean searchFocus = false;
@@ -278,6 +329,7 @@ if (s.isDamageable()) { ctx.drawStackOverlay(tr, s, x, ay); int pct = 100 - s.ge
 				if (PX[i] == UNSET || PY[i] == UNSET) { PX[i] = sx + i * (PW + GAP); PY[i] = 44; }
 				PX[i] = Math.max(0, Math.min(width - PW, PX[i])); PY[i] = Math.max(0, Math.min(height - HH, PY[i]));
 			}
+			HudDrag.editorMode = true;
 		}
 		static int lerp(int c1, int c2, float t) { return ((int) (((c1 >>> 24) & 255) * (1 - t) + ((c2 >>> 24) & 255) * t) << 24) | ((int) (((c1 >> 16) & 255) * (1 - t) + ((c2 >> 16) & 255) * t) << 16) | ((int) (((c1 >> 8) & 255) * (1 - t) + ((c2 >> 8) & 255) * t) << 8) | (int) ((c1 & 255) * (1 - t) + (c2 & 255) * t); }
 		static int alpha(int color, int a) { return (color & 0x00FFFFFF) | (a << 24); }
@@ -290,7 +342,7 @@ if (s.isDamageable()) { ctx.drawStackOverlay(tr, s, x, ay); int pct = 100 - s.ge
 		List<Mod> visible(String cat) { List<Mod> l = new ArrayList<>(); for (Mod m : modsOf(cat)) if (matches(m)) l.add(m); return l; }
 		int searchX() { return width / 2 - 60; } int searchY() { return 16; }
 		@Override public boolean shouldPause() { return false; }
-		@Override public void removed() { save(); }
+		@Override public void removed() { HudDrag.editorMode = false; save(); }
 		@Override
 		public boolean keyPressed(int key, int scan, int mod) {
 			if (searchFocus) {
@@ -305,6 +357,7 @@ if (s.isDamageable()) { ctx.drawStackOverlay(tr, s, x, ay); int pct = 100 - s.ge
 		private void handleSetting(Setting s, int px, double mx) { if (s.type == 0) { s.b = !s.b; click(s.b); } else if (s.type == 2) { s.idx = (s.idx + 1) % s.opts.length; click(true); } else { dragSlider = s; sliderX = px; setSlider(mx); } }
 		@Override
 		public boolean mouseClicked(double mx, double my, int button) {
+			if (button == 0 && HudDrag.mouseClicked(mx, my)) return true;
 			int sx = searchX(), sy = searchY(); if (mx >= sx && mx <= sx + 120 && my >= sy && my <= sy + 14) { searchFocus = true; return true; } searchFocus = false;
 			for (int c = 0; c < CATS.length; c++) {
 				List<Mod> mods = visible(CATS[c]); if (!query.isEmpty() && mods.isEmpty()) continue; int x = PX[c], y = PY[c]; if (mx < x || mx > x + PW) continue;
@@ -322,14 +375,16 @@ if (s.isDamageable()) { ctx.drawStackOverlay(tr, s, x, ay); int pct = 100 - s.ge
 			}
 			return super.mouseClicked(mx, my, button);
 		}
-		@Override public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) { if (dragPanel >= 0) { PX[dragPanel] = Math.max(0, Math.min(width - PW, (int) mx - dragDX)); PY[dragPanel] = Math.max(0, Math.min(height - HH, (int) my - dragDY)); return true; } if (dragSlider != null) { setSlider(mx); return true; } return super.mouseDragged(mx, my, btn, dx, dy); }
-		@Override public boolean mouseReleased(double mx, double my, int btn) { boolean was = dragPanel >= 0 || dragSlider != null; dragPanel = -1; dragSlider = null; if (was) save(); return super.mouseReleased(mx, my, btn); }
+		@Override public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) { if (HudDrag.mouseDragged(mx, my)) return true; if (dragPanel >= 0) { PX[dragPanel] = Math.max(0, Math.min(width - PW, (int) mx - dragDX)); PY[dragPanel] = Math.max(0, Math.min(height - HH, (int) my - dragDY)); return true; } if (dragSlider != null) { setSlider(mx); return true; } return super.mouseDragged(mx, my, btn, dx, dy); }
+		@Override public boolean mouseReleased(double mx, double my, int btn) { if (HudDrag.mouseReleased()) return true; boolean was = dragPanel >= 0 || dragSlider != null; dragPanel = -1; dragSlider = null; if (was) save(); return super.mouseReleased(mx, my, btn); }
 		private int panelHeight(List<Mod> mods) { int h = HH; for (Mod m : mods) h += MH + (int) (m.openAnim * m.sets.size() * SH); return h + 4; }
-		
 		@Override
 		public void render(DrawContext ctx, int mx, int my, float delta) {
 			int accent = themeColor(), rad = Math.round(S_ROUND.v), bgPanel = 0xEB101C2E, bgHead = 0xFF16263C, bgRow = 0xFF182A42, bgRowHover = 0xFF203753, bgSet = 0xFF12203A, txtOff = 0xFFAEBBCF;
 			if (S_BLUR.b && !LITE.enabled) renderBackground(ctx, mx, my, delta); else ctx.fill(0, 0, width, height, 0x88000000);
+			MinecraftClient mc = MinecraftClient.getInstance();
+			if (mc.player != null) draw(ctx, mc);
+			for (String name : HudDrag.POS.keySet()) { if (isVisible(name)) HudDrag.drawBox(ctx, name, accent); }
 			ctx.drawTextWithShadow(textRenderer, "PIROZHOK", (width - textRenderer.getWidth("PIROZHOK")) / 2, 4, accent);
 			int sx = searchX(), sy = searchY(); rrect(ctx, sx - 1, sy - 1, sx + 121, sy + 15, Math.min(rad, 7), alpha(accent, 0xAA)); rrect(ctx, sx, sy, sx + 120, sy + 14, Math.min(rad, 7), 0xFF0F1A2C);
 			String shownQ = query.isEmpty() && !searchFocus ? "Search..." : query + (((System.currentTimeMillis() / 450) % 2 == 0) && searchFocus ? "_" : ""); ctx.drawTextWithShadow(textRenderer, shownQ, sx + 5, sy + 3, query.isEmpty() && !searchFocus ? 0xFF6F7D92 : 0xFFFFFFFF);
@@ -357,7 +412,24 @@ if (s.isDamageable()) { ctx.drawStackOverlay(tr, s, x, ay); int pct = 100 - s.ge
 					cy += sh;
 				}
 			}
-			ctx.drawTextWithShadow(textRenderer, "Click name = on/off  |  + = settings  |  drag header = move  |  click search to type  |  M = close", (width - textRenderer.getWidth("Click name = on/off  |  + = settings  |  drag header = move  |  click search to type  |  M = close")) / 2, height - 12, 0xFF8FA3BD);
+			ctx.drawTextWithShadow(textRenderer, "Click name = on/off  |  + = settings  |  drag header/HUD = move  |  click search to type  |  M = close", (width - textRenderer.getWidth("Click name = on/off  |  + = settings  |  drag header/HUD = move  |  click search to type  |  M = close")) / 2, height - 12, 0xFF8FA3BD);
+		}
+		private boolean isVisible(String name) {
+			return switch (name) {
+				case "Watermark" -> WATERMARK.enabled;
+				case "Coordinates" -> COORDS.enabled;
+				case "FPS" -> FPS.enabled;
+				case "Ping" -> PING.enabled;
+				case "CPS" -> CPS.enabled;
+				case "Speed" -> SPEED.enabled;
+				case "Time" -> TIME.enabled;
+				case "Effects" -> EFFECTS.enabled;
+				case "Keystrokes" -> KEYS.enabled;
+				case "ArrayList" -> ARRAYLIST.enabled;
+				case "Totems" -> TOTEMS.enabled;
+				case "Armor" -> ARMOR.enabled;
+				default -> false;
+			};
 		}
 	}
-																																																																											 }
+		}
