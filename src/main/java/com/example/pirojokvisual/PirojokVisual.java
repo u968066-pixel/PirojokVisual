@@ -383,7 +383,6 @@ private void refresh(MinecraftClient mc) {
 			int accent = themeColor(), rad = Math.round(S_ROUND.v), bgPanel = 0xEB101C2E, bgHead = 0xFF16263C, bgRow = 0xFF182A42, bgRowHover = 0xFF203753, bgSet = 0xFF12203A, txtOff = 0xFFAEBBCF;
 			if (S_BLUR.b && !LITE.enabled) renderBackground(ctx, mx, my, delta); else ctx.fill(0, 0, width, height, 0x88000000);
 			MinecraftClient mc = MinecraftClient.getInstance();
-			if (mc.player != null) draw(ctx, mc);
 			for (String name : HudDrag.POS.keySet()) { if (isVisible(name)) HudDrag.drawBox(ctx, name, accent); }
 			ctx.drawTextWithShadow(textRenderer, "PIROZHOK", (width - textRenderer.getWidth("PIROZHOK")) / 2, 4, accent);
 			int sx = searchX(), sy = searchY(); rrect(ctx, sx - 1, sy - 1, sx + 121, sy + 15, Math.min(rad, 7), alpha(accent, 0xAA)); rrect(ctx, sx, sy, sx + 120, sy + 14, Math.min(rad, 7), 0xFF0F1A2C);
