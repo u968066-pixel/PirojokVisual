@@ -78,8 +78,9 @@ public class PirojokVisual implements ClientModInitializer {
 	static final Mod ZOOM = new Mod("Zoom", "Visuals", true, false).add(S_ZOOM).add(S_SMOOTH), CROSS = new Mod("Crosshair", "Visuals", false, false).add(S_CROSS);
 	static final Mod LOWHP = new Mod("Low HP Alert", "Visuals", false, false).add(S_LOWHP), SPRINT = new Mod("Auto Sprint", "Player", false, false);
 	static final Mod HITSOUND = new Mod("Hit Sound", "Player", false, false).add(S_HSOUND).add(S_HPITCH), IFACE = new Mod("Interface", "Client", true, true).add(S_COLOR).add(S_SOUND).add(S_ROUND).add(S_BLUR);
+	static final Mod LITE = new Mod("Lite Mode", "Client", false, false);
 
-	static final Mod[] ALL = {WATERMARK, COORDS, FPS, PING, CPS, SPEED, TIME, TOTEMS, ARMOR, EFFECTS, KEYS, ARRAYLIST, NIGHT, BRIGHT, ZOOM, CROSS, LOWHP, SPRINT, HITSOUND, IFACE};
+	static final Mod[] ALL = {WATERMARK, COORDS, FPS, PING, CPS, SPEED, TIME, TOTEMS, ARMOR, EFFECTS, KEYS, ARRAYLIST, NIGHT, BRIGHT, ZOOM, CROSS, LOWHP, SPRINT, HITSOUND, IFACE, LITE};
 	static final String[] CATS = {"HUD", "Visuals", "Player", "Client"};
 	static final int[] COLORS = {0xFFFFFF, 0x55FF55, 0x55FFFF, 0xFF77CC, 0xFFAA00, 0};
 	static final int UNSET = Integer.MIN_VALUE; static final int[] PX = new int[4], PY = new int[4];
@@ -168,7 +169,7 @@ public class PirojokVisual implements ClientModInitializer {
 		if (atk && !lastAttack) clicks.add(now); lastAttack = atk; clicks.removeIf(t -> now - t > 1000);
 		double dx = mc.player.getX() - prevX, dz = mc.player.getZ() - prevZ; prevX = mc.player.getX(); prevZ = mc.player.getZ();
 		speed = speed * 0.8f + (float) (Math.sqrt(dx * dx + dz * dz) * 20) * 0.2f;
-		if (++tickCount % 2 == 0) refresh(mc);
+		if (++tickCount % (LITE.enabled ? 10 : 2) == 0) refresh(mc);
 
 		if (NIGHT.enabled) {
 			StatusEffectInstance e = mc.player.getStatusEffect(StatusEffects.NIGHT_VISION);
@@ -189,8 +190,8 @@ public class PirojokVisual implements ClientModInitializer {
 			float target = held ? S_ZOOM.v : savedFov; curFov = S_SMOOTH.b ? curFov + (target - curFov) * 0.4f : target; fov.setValue(Math.round(curFov));
 			if (!held && Math.abs(curFov - savedFov) < 1f) { fov.setValue(savedFov); zoomActive = false; }
 		}
-  }
-  
+				 }
+	
 	private int countTotems(MinecraftClient mc) {
 		int n = 0; for (int i = 0; i < 36; i++) { ItemStack s = mc.player.getInventory().getStack(i); if (s.isOf(Items.TOTEM_OF_UNDYING)) n += s.getCount(); }
 		ItemStack off = mc.player.getOffHandStack(); if (off.isOf(Items.TOTEM_OF_UNDYING)) n += off.getCount(); return n;
@@ -221,7 +222,7 @@ public class PirojokVisual implements ClientModInitializer {
 		List<String> names = new ArrayList<>();
 		if (ARRAYLIST.enabled) {
 			for (Mod m : ALL) { if (m.always || !m.enabled || m.cat.equals("HUD")) continue; if (m == ZOOM && !zoomActive) continue; names.add(m.name); }
-			names.sort((a, b) -> tr.getWidth(b) - tr.getWidth(a));
+			if (!LITE.enabled) names.sort((a, b) -> tr.getWidth(b) - tr.getWidth(a));
 		}
 		arrNames = names.toArray(new String[0]); arrW = new int[arrNames.length]; for (int i = 0; i < arrNames.length; i++) arrW[i] = tr.getWidth(arrNames[i]);
 		totemCount = countTotems(mc);
@@ -243,7 +244,14 @@ public class PirojokVisual implements ClientModInitializer {
 		}
 		if (!hudVisible) return;
 		int y = 4;
-if (WATERMARK.enabled) { ctx.fill(4, y, 4 + tr.getWidth("Pirozhok") + 10, y + 14, 0xAA101018); ctx.fill(4, y, 6, y + 14, col); ctx.drawTextWithShadow(tr, "Pirozhok", 10, y + 3, col); y += 18; }
+		if (WATERMARK.enabled) {
+			String wm = "Pirozhok  |  " + mc.getCurrentFps() + " FPS  |  0 ms";
+			int wmw = tr.getWidth(wm);
+			ctx.fill(4, y, 8 + wmw + 8, y + 14, 0xAA101018);
+			ctx.fill(4, y, 6, y + 14, col);
+			ctx.drawTextWithShadow(tr, wm, 10, y + 3, col);
+			y += 18;
+		}
 for (int i = 0; i < infoLines.length; i++) { ctx.fill(4, y, 4 + infoW[i] + 8, y + 11, 0x80101018); ctx.fill(4, y, 5, y + 11, col); ctx.drawTextWithShadow(tr, infoLines[i], 8, y + 2, 0xFFFFFFFF); y += 12; }
 if (effLines.length > 0) y += 2;
 for (int i = 0; i < effLines.length; i++) { ctx.fill(4, y, 4 + effW[i] + 8, y + 11, 0x80101018); ctx.fill(4, y, 5, y + 11, 0xFFAA55FF); ctx.drawTextWithShadow(tr, effLines[i], 8, y + 2, 0xFFFFFFFF); y += 12; }
@@ -317,11 +325,11 @@ if (s.isDamageable()) { ctx.drawStackOverlay(tr, s, x, ay); int pct = 100 - s.ge
 		@Override public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) { if (dragPanel >= 0) { PX[dragPanel] = Math.max(0, Math.min(width - PW, (int) mx - dragDX)); PY[dragPanel] = Math.max(0, Math.min(height - HH, (int) my - dragDY)); return true; } if (dragSlider != null) { setSlider(mx); return true; } return super.mouseDragged(mx, my, btn, dx, dy); }
 		@Override public boolean mouseReleased(double mx, double my, int btn) { boolean was = dragPanel >= 0 || dragSlider != null; dragPanel = -1; dragSlider = null; if (was) save(); return super.mouseReleased(mx, my, btn); }
 		private int panelHeight(List<Mod> mods) { int h = HH; for (Mod m : mods) h += MH + (int) (m.openAnim * m.sets.size() * SH); return h + 4; }
-    
+		
 		@Override
 		public void render(DrawContext ctx, int mx, int my, float delta) {
 			int accent = themeColor(), rad = Math.round(S_ROUND.v), bgPanel = 0xEB101C2E, bgHead = 0xFF16263C, bgRow = 0xFF182A42, bgRowHover = 0xFF203753, bgSet = 0xFF12203A, txtOff = 0xFFAEBBCF;
-			if (S_BLUR.b) renderBackground(ctx, mx, my, delta); else ctx.fill(0, 0, width, height, 0x88000000);
+			if (S_BLUR.b && !LITE.enabled) renderBackground(ctx, mx, my, delta); else ctx.fill(0, 0, width, height, 0x88000000);
 			ctx.drawTextWithShadow(textRenderer, "PIROZHOK", (width - textRenderer.getWidth("PIROZHOK")) / 2, 4, accent);
 			int sx = searchX(), sy = searchY(); rrect(ctx, sx - 1, sy - 1, sx + 121, sy + 15, Math.min(rad, 7), alpha(accent, 0xAA)); rrect(ctx, sx, sy, sx + 120, sy + 14, Math.min(rad, 7), 0xFF0F1A2C);
 			String shownQ = query.isEmpty() && !searchFocus ? "Search..." : query + (((System.currentTimeMillis() / 450) % 2 == 0) && searchFocus ? "_" : ""); ctx.drawTextWithShadow(textRenderer, shownQ, sx + 5, sy + 3, query.isEmpty() && !searchFocus ? 0xFF6F7D92 : 0xFFFFFFFF);
@@ -352,4 +360,4 @@ if (s.isDamageable()) { ctx.drawStackOverlay(tr, s, x, ay); int pct = 100 - s.ge
 			ctx.drawTextWithShadow(textRenderer, "Click name = on/off  |  + = settings  |  drag header = move  |  click search to type  |  M = close", (width - textRenderer.getWidth("Click name = on/off  |  + = settings  |  drag header = move  |  click search to type  |  M = close")) / 2, height - 12, 0xFF8FA3BD);
 		}
 	}
-}
+																																																																											 }
