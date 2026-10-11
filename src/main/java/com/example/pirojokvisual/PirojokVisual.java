@@ -265,10 +265,6 @@ private void draw(DrawContext ctx, MinecraftClient mc) {
 		int c = ((int) (60 + 50 * Math.sin(System.currentTimeMillis() / 180.0)) << 24) | 0xFF2020; int t = 10;
 		ctx.fill(0, 0, sw, t, c); ctx.fill(0, sh - t, sw, sh, c); ctx.fill(0, t, t, sh - t, c); ctx.fill(sw - t, t, sw, sh - t, c);
 	}
-	if (DAMAGE_TINT.enabled && mc.player.hurtTime > 0) {
-		int a = Math.min(120, mc.player.hurtTime * 6);
-		ctx.fill(0, 0, sw, sh, (a << 24) | 0xFF0000);
-	}
 	if (!hudVisible) return;
 	int[] wp = HudDrag.pos("Watermark");
 	if (WATERMARK.enabled) {
