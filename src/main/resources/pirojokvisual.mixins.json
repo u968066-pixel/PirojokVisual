@@ -2,7 +2,9 @@
   "required": true,
   "package": "com.example.pirojokvisual.mixin",
   "compatibilityLevel": "JAVA_21",
-  "client": ["ChinaHatMixin"]
+  "client": [
+    "ChinaHatMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
   }
