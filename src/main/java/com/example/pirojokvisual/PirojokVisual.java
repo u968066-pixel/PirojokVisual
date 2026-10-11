@@ -84,8 +84,8 @@ static final Mod LITE = new Mod("Lite Mode", "Client", false, false);
 static final Mod TARGET_HUD = new Mod("TargetHUD", "Combat", false, false);
 static final Mod AUTO_RESPAWN = new Mod("Auto Respawn", "Player", false, false);
 static final Mod NO_HURT_CAM = new Mod("NoHurtCam", "Visuals", false, false);
-
-static final Mod[] ALL = {WATERMARK, COORDS, FPS, PING, CPS, SPEED, TIME, TOTEMS, ARMOR, EFFECTS, KEYS, ARRAYLIST, NIGHT, BRIGHT, ZOOM, CROSS, LOWHP, SPRINT, HITSOUND, IFACE, LITE, TARGET_HUD, AUTO_RESPAWN, NO_HURT_CAM};
+static final Mod CHINA_HAT = new Mod("China Hat", "Visuals", false, false);
+	static final Mod[] ALL = {WATERMARK, COORDS, FPS, PING, CPS, SPEED, TIME, TOTEMS, ARMOR, EFFECTS, KEYS, ARRAYLIST, NIGHT, BRIGHT, ZOOM, CROSS, LOWHP, SPRINT, HITSOUND, IFACE, LITE, TARGET_HUD, AUTO_RESPAWN, NO_HURT_CAM, CHINA_HAT};
 static final String[] CATS = {"HUD", "Visuals", "Player", "Combat", "Client"};
 static final int[] COLORS = {0xFFFFFF, 0x55FF55, 0x55FFFF, 0xFF77CC, 0xFFAA00, 0};
 static final int UNSET = Integer.MIN_VALUE; static final int[] PX = new int[5], PY = new int[5];
