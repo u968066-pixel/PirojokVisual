@@ -70,7 +70,6 @@ static final Setting S_CROSS = Setting.mode("Style", 2, "Dot", "Ticks", "Both"),
 static final Setting S_HSOUND = Setting.mode("Sound", 3, "Pling", "Bell", "Bit", "Orb", "Arrow"), S_HPITCH = Setting.slider("Pitch", 0.5f, 2.0f, 0.1f, 1.2f);
 static final Setting S_COLOR = Setting.mode("Color", 2, "White", "Green", "Cyan", "Pink", "Orange", "Rainbow");
 static final Setting S_SOUND = Setting.bool("Sounds", true), S_ROUND = Setting.slider("Rounding", 0, 10, 1, 5), S_BLUR = Setting.bool("Blur", true);
-static final Setting S_BLUR_AMT = Setting.slider("Motion Blur", 0, 10, 1, 5);
 
 static final Mod WATERMARK = new Mod("Watermark", "HUD", true, false), COORDS = new Mod("Coordinates", "HUD", true, false);
 static final Mod FPS = new Mod("FPS", "HUD", true, false), PING = new Mod("Ping", "HUD", true, false), CPS = new Mod("CPS", "HUD", true, false);
@@ -84,8 +83,8 @@ static final Mod LITE = new Mod("Lite Mode", "Client", false, false);
 static final Mod TARGET_HUD = new Mod("TargetHUD", "Combat", false, false);
 static final Mod AUTO_RESPAWN = new Mod("Auto Respawn", "Player", false, false);
 static final Mod NO_HURT_CAM = new Mod("NoHurtCam", "Visuals", false, false);
-static final Mod CHINA_HAT = new Mod("China Hat", "Visuals", false, false);
-	static final Mod[] ALL = {WATERMARK, COORDS, FPS, PING, CPS, SPEED, TIME, TOTEMS, ARMOR, EFFECTS, KEYS, ARRAYLIST, NIGHT, BRIGHT, ZOOM, CROSS, LOWHP, SPRINT, HITSOUND, IFACE, LITE, TARGET_HUD, AUTO_RESPAWN, NO_HURT_CAM, CHINA_HAT};
+
+static final Mod[] ALL = {WATERMARK, COORDS, FPS, PING, CPS, SPEED, TIME, TOTEMS, ARMOR, EFFECTS, KEYS, ARRAYLIST, NIGHT, BRIGHT, ZOOM, CROSS, LOWHP, SPRINT, HITSOUND, IFACE, LITE, TARGET_HUD, AUTO_RESPAWN, NO_HURT_CAM};
 static final String[] CATS = {"HUD", "Visuals", "Player", "Combat", "Client"};
 static final int[] COLORS = {0xFFFFFF, 0x55FF55, 0x55FFFF, 0xFF77CC, 0xFFAA00, 0};
 static final int UNSET = Integer.MIN_VALUE; static final int[] PX = new int[5], PY = new int[5];
@@ -156,7 +155,7 @@ private int tickCount = 0; private double prevX, prevZ; private float speed = 0f
 private String[] infoLines = new String[0], effLines = new String[0], arrNames = new String[0];
 private int[] infoW = new int[0], effW = new int[0], arrW = new int[0];
 private int totemCount = 0; private ItemStack totemStack;
-	
+
 @Override
 public void onInitializeClient() {
 	load();
@@ -312,17 +311,18 @@ private void draw(DrawContext ctx, MinecraftClient mc) {
 }
 	
 static class MenuScreen extends Screen {
-	static final int PW = 112, HH = 20, MH = 16, SH = 16, GAP = 8; int dragPanel = -1, dragDX, dragDY, sliderX; Setting dragSlider = null; String query = ""; boolean searchFocus = false;
+	static final int SW = 90;
+	int selectedCat = 0;
+	String query = "";
+	boolean searchFocus = false;
+	Setting dragSlider = null;
+	int sliderX;
+
 	MenuScreen() { super(Text.literal("Pirozhok Visuals")); }
+
 	@Override
-	protected void init() {
-		int total = CATS.length * PW + (CATS.length - 1) * GAP, sx = Math.max(4, (width - total) / 2);
-		for (int i = 0; i < CATS.length; i++) {
-			if (PX[i] == UNSET || PY[i] == UNSET) { PX[i] = sx + i * (PW + GAP); PY[i] = 44; }
-			PX[i] = Math.max(0, Math.min(width - PW, PX[i])); PY[i] = Math.max(0, Math.min(height - HH, PY[i]));
-		}
-		HudDrag.editorMode = true;
-	}
+	protected void init() { HudDrag.editorMode = true; }
+
 	static int lerp(int c1, int c2, float t) { return ((int) (((c1 >>> 24) & 255) * (1 - t) + ((c2 >>> 24) & 255) * t) << 24) | ((int) (((c1 >> 16) & 255) * (1 - t) + ((c2 >> 16) & 255) * t) << 16) | ((int) (((c1 >> 8) & 255) * (1 - t) + ((c2 >> 8) & 255) * t) << 8) | (int) ((c1 & 255) * (1 - t) + (c2 & 255) * t); }
 	static int alpha(int color, int a) { return (color & 0x00FFFFFF) | (a << 24); }
 	static void rrect(DrawContext ctx, int x1, int y1, int x2, int y2, int r, int color) {
@@ -330,11 +330,10 @@ static class MenuScreen extends Screen {
 		ctx.fill(x1, y1 + r, x2, y2 - r, color);
 		for (int i = 0; i < r; i++) { double dy = r - i - 0.5; int inset = (int) Math.round(r - Math.sqrt(r * r - dy * dy)); ctx.fill(x1 + inset, y1 + i, x2 - inset, y1 + i + 1, color); ctx.fill(x1 + inset, y2 - i - 1, x2 - inset, y2 - i, color); }
 	}
-	boolean matches(Mod m) { return query.isEmpty() || m.name.toLowerCase().contains(query.toLowerCase()); }
-	List<Mod> visible(String cat) { List<Mod> l = new ArrayList<>(); for (Mod m : modsOf(cat)) if (matches(m)) l.add(m); return l; }
-	int searchX() { return width / 2 - 60; } int searchY() { return 16; }
+
 	@Override public boolean shouldPause() { return false; }
 	@Override public void removed() { HudDrag.editorMode = false; save(); }
+
 	@Override
 	public boolean keyPressed(int key, int scan, int mod) {
 		if (searchFocus) {
@@ -342,85 +341,155 @@ static class MenuScreen extends Screen {
 			if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_ESCAPE) { searchFocus = false; return true; }
 			return true;
 		}
-		if (key == GLFW.GLFW_KEY_M) { close(); return true; } return super.keyPressed(key, scan, mod);
+		if (key == GLFW.GLFW_KEY_M) { close(); return true; }
+		return super.keyPressed(key, scan, mod);
 	}
-	@Override public boolean charTyped(char chr, int mod) { if (searchFocus && chr >= 32 && chr != 127 && query.length() < 20) { query += chr; return true; } return super.charTyped(chr, mod); }
-	private void setSlider(double mx) { float t = Math.max(0f, Math.min(1f, (float) ((mx - (sliderX + 6)) / (PW - 12)))); float val = Math.round((dragSlider.min + t * (dragSlider.max - dragSlider.min)) / dragSlider.step) * dragSlider.step; dragSlider.v = Math.max(dragSlider.min, Math.min(dragSlider.max, val)); }
-	private void handleSetting(Setting s, int px, double mx) { if (s.type == 0) { s.b = !s.b; click(s.b); } else if (s.type == 2) { s.idx = (s.idx + 1) % s.opts.length; click(true); } else { dragSlider = s; sliderX = px; setSlider(mx); } }
+
 	@Override
-	public boolean mouseClicked(double mx, double my, int button) {
-		if (button == 0 && HudDrag.mouseClicked(mx, my)) return true;
-		int sx = searchX(), sy = searchY(); if (mx >= sx && mx <= sx + 120 && my >= sy && my <= sy + 14) { searchFocus = true; return true; } searchFocus = false;
-		for (int c = 0; c < CATS.length; c++) {
-			List<Mod> mods = visible(CATS[c]); if (!query.isEmpty() && mods.isEmpty()) continue; int x = PX[c], y = PY[c]; if (mx < x || mx > x + PW) continue;
-			if (my >= y && my <= y + HH) { if (button == 0) { dragPanel = c; dragDX = (int) mx - x; dragDY = (int) my - y; return true; } continue; }
-			int cy = y + HH;
-			for (Mod m : mods) {
-				if (my >= cy && my < cy + MH) {
-					if (button == 1 || (!m.sets.isEmpty() && mx >= x + PW - 18) || (m.always && !m.sets.isEmpty())) { m.open = !m.open; click(m.open); }
-					else if (button == 0 && !m.always) { m.enabled = !m.enabled; click(m.enabled); } return true;
-				}
-				cy += MH;
-				if (m.open && m.openAnim >= 1f) { for (Setting s : m.sets) { if (my >= cy && my < cy + SH) { if (button == 0) handleSetting(s, x, mx); return true; } cy += SH; } }
-				else { cy += (int) (m.openAnim * m.sets.size() * SH); }
-			}
-		}
-		return super.mouseClicked(mx, my, button);
+	public boolean charTyped(char chr, int mod) {
+		if (searchFocus && chr >= 32 && chr != 127 && query.length() < 20) { query += chr; return true; }
+		return super.charTyped(chr, mod);
 	}
-	@Override public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) { if (HudDrag.mouseDragged(mx, my)) return true; if (dragPanel >= 0) { PX[dragPanel] = Math.max(0, Math.min(width - PW, (int) mx - dragDX)); PY[dragPanel] = Math.max(0, Math.min(height - HH, (int) my - dragDY)); return true; } if (dragSlider != null) { setSlider(mx); return true; } return super.mouseDragged(mx, my, btn, dx, dy); }
-	@Override public boolean mouseReleased(double mx, double my, int btn) { if (HudDrag.mouseReleased()) return true; boolean was = dragPanel >= 0 || dragSlider != null; dragPanel = -1; dragSlider = null; if (was) save(); return super.mouseReleased(mx, my, btn); }
-	private int panelHeight(List<Mod> mods) { int h = HH; for (Mod m : mods) h += MH + (int) (m.openAnim * m.sets.size() * SH); return h + 4; }
+
+	private int catX() { return 10; }
+	private int catY(int i) { return 60 + i * 30; }
+	private int modX() { return 110; }
+	private int modY() { return 60; }
+	private int modW() { return 200; }
+	
+@Override
+public boolean mouseClicked(double mx, double my, int button) {
+	if (button == 0 && HudDrag.mouseClicked(mx, my)) return true;
+
+	for (int i = 0; i < CATS.length; i++) {
+		int cx = catX(), cy = catY(i);
+		if (mx >= cx && mx <= cx + SW && my >= cy && my <= cy + 24) {
+			selectedCat = i; click(true); return true;
+		}
+	}
+
+	int sx = modX(), sy = 20;
+	if (mx >= sx && mx <= sx + modW() && my >= sy && my <= sy + 16) { searchFocus = true; return true; }
+	searchFocus = false;
+
+	int my2 = modY();
+	for (Mod m : modsOf(CATS[selectedCat])) {
+		if (!query.isEmpty() && !m.name.toLowerCase().contains(query.toLowerCase())) continue;
+		if (mx >= modX() && mx <= modX() + modW() && my >= my2 && my <= my2 + 20) {
+			if (m.open && m.openAnim >= 1f) {
+				int sy2 = my2 + 20;
+				for (Setting s : m.sets) {
+					if (my >= sy2 && my <= sy2 + 16) { handleSetting(s, modX(), mx); return true; }
+					sy2 += 16;
+				}
+			}
+			if (button == 1 || (!m.sets.isEmpty() && mx >= modX() + modW() - 20)) { m.open = !m.open; click(m.open); }
+			else if (button == 0 && !m.always) { m.enabled = !m.enabled; click(m.enabled); }
+			return true;
+		}
+		my2 += 20 + (int) (m.openAnim * m.sets.size() * 16);
+	}
+
+	return super.mouseClicked(mx, my, button);
+}
+
+private void handleSetting(Setting s, int px, double mx) {
+	if (s.type == 0) { s.b = !s.b; click(s.b); }
+	else if (s.type == 2) { s.idx = (s.idx + 1) % s.opts.length; click(true); }
+	else { dragSlider = s; sliderX = px; setSlider(mx); }
+}
+
+private void setSlider(double mx) {
+	float t = Math.max(0f, Math.min(1f, (float) ((mx - (sliderX + 8)) / (modW() - 16))));
+	float val = Math.round((dragSlider.min + t * (dragSlider.max - dragSlider.min)) / dragSlider.step) * dragSlider.step;
+	dragSlider.v = Math.max(dragSlider.min, Math.min(dragSlider.max, val));
+}
+
+@Override
+public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) {
+	if (HudDrag.mouseDragged(mx, my)) return true;
+	if (dragSlider != null) { setSlider(mx); return true; }
+	return super.mouseDragged(mx, my, btn, dx, dy);
+}
+
+@Override
+public boolean mouseReleased(double mx, double my, int btn) {
+	if (HudDrag.mouseReleased()) return true;
+	if (dragSlider != null) { dragSlider = null; save(); return true; }
+	return super.mouseReleased(mx, my, btn);
+}
 	
 		@Override
 		public void render(DrawContext ctx, int mx, int my, float delta) {
-			int accent = themeColor(), rad = Math.round(S_ROUND.v), bgPanel = 0xEB101C2E, bgHead = 0xFF16263C, bgRow = 0xFF182A42, bgRowHover = 0xFF203753, bgSet = 0xFF12203A, txtOff = 0xFFAEBBCF;
-			if (S_BLUR.b && !LITE.enabled) renderBackground(ctx, mx, my, delta); else ctx.fill(0, 0, width, height, 0x88000000);
-			for (String name : HudDrag.POS.keySet()) { if (isVisible(name)) HudDrag.drawBox(ctx, name, accent); }
-			ctx.drawTextWithShadow(textRenderer, "PIROZHOK", (width - textRenderer.getWidth("PIROZHOK")) / 2, 4, accent);
-			int sx = searchX(), sy = searchY(); rrect(ctx, sx - 1, sy - 1, sx + 121, sy + 15, Math.min(rad, 7), alpha(accent, 0xAA)); rrect(ctx, sx, sy, sx + 120, sy + 14, Math.min(rad, 7), 0xFF0F1A2C);
-			String shownQ = query.isEmpty() && !searchFocus ? "Search..." : query + (((System.currentTimeMillis() / 450) % 2 == 0) && searchFocus ? "_" : ""); ctx.drawTextWithShadow(textRenderer, shownQ, sx + 5, sy + 3, query.isEmpty() && !searchFocus ? 0xFF6F7D92 : 0xFFFFFFFF);
-			for (int c = 0; c < CATS.length; c++) {
-				List<Mod> mods = visible(CATS[c]); if (!query.isEmpty() && mods.isEmpty()) continue; int x = PX[c], y = PY[c];
-				for (Mod m : modsOf(CATS[c])) {
-					m.anim += ((m.enabled ? 1f : 0f) - m.anim) * 0.3f; if (Math.abs((m.enabled ? 1f : 0f) - m.anim) < 0.02f) m.anim = m.enabled ? 1f : 0f;
-					m.openAnim += ((m.open ? 1f : 0f) - m.openAnim) * 0.3f; if (Math.abs((m.open ? 1f : 0f) - m.openAnim) < 0.02f) m.openAnim = m.open ? 1f : 0f;
-					for (Setting s : m.sets) { if (s.type == 0) { s.tg += ((s.b ? 1f : 0f) - s.tg) * 0.35f; if (Math.abs((s.b ? 1f : 0f) - s.tg) < 0.02f) s.tg = s.b ? 1f : 0f; } }
-				}
-				int h = panelHeight(mods); rrect(ctx, x - 2, y - 1, x + PW + 2, y + h + 3, rad + 2, 0x40000000); rrect(ctx, x - 1, y - 1, x + PW + 1, y + h + 1, rad + 1, 0xFF22344C); rrect(ctx, x, y, x + PW, y + h, rad, bgPanel); rrect(ctx, x, y, x + PW, y + HH, rad, bgHead); ctx.fill(x + 4, y + HH - 2, x + PW - 4, y + HH - 1, accent); ctx.drawTextWithShadow(textRenderer, CATS[c].toUpperCase(), x + 8, y + 6, 0xFFFFFFFF); ctx.drawTextWithShadow(textRenderer, "-", x + PW - 11, y + 6, 0xFF8FA3BD);
-				int cy = y + HH;
-				for (int mi = 0; mi < mods.size(); mi++) {
-					Mod m = mods.get(mi); boolean hover = mx >= x && mx <= x + PW && my >= cy && my < cy + MH; ctx.fill(x + 2, cy, x + PW - 2, cy + MH, lerp(hover ? bgRowHover : bgRow, lerp(bgRow, accent, 0.22f), m.anim)); if (m.anim > 0f) ctx.fill(x + 2, cy, x + 4, cy + MH, alpha(accent, (int) (255 * m.anim))); ctx.drawTextWithShadow(textRenderer, m.name.toUpperCase(), x + 8, cy + 4, m.always ? 0xFFFFFFFF : lerp(txtOff, 0xFFFFFFFF, m.anim)); if (!m.sets.isEmpty()) ctx.drawTextWithShadow(textRenderer, m.open ? "-" : "+", x + PW - 11, cy + 4, 0xFF8FA3BD); cy += MH;
-					int sh = (int) (m.openAnim * m.sets.size() * SH);
-					if (sh > 0) {
-						ctx.enableScissor(x, cy, x + PW, cy + sh); int sy2 = cy;
-						for (Setting s : m.sets) {
-							ctx.fill(x + 2, sy2, x + PW - 2, sy2 + SH, bgSet); ctx.fill(x + 5, sy2, x + 6, sy2 + SH, alpha(accent, 0x66)); ctx.drawTextWithShadow(textRenderer, s.name.toUpperCase(), x + 10, sy2 + 4, txtOff);
-							if (s.type == 0) { int pw = 20, ph = 9, px1 = x + PW - 6 - pw, py1 = sy2 + (SH - ph) / 2; rrect(ctx, px1, py1, px1 + pw, py1 + ph, 4, lerp(0xFF2A3A52, accent, s.tg)); int kx = px1 + 1 + (int) ((pw - ph) * s.tg); rrect(ctx, kx, py1 + 1, kx + ph - 2, py1 + ph - 1, 3, 0xFFFFFFFF); }
-							else { String val = s.shown().toUpperCase(); ctx.drawTextWithShadow(textRenderer, val, x + PW - 6 - textRenderer.getWidth(val), sy2 + 4, accent); if (s.type == 1) { int bx1 = x + 10, bx2 = x + PW - 6, by = sy2 + SH - 3; ctx.fill(bx1, by, bx2, by + 2, 0xFF2A3A52); ctx.fill(bx1, by, bx1 + (int) ((bx2 - bx1) * ((s.v - s.min) / (s.max - s.min))), by + 2, accent); } } sy2 += SH;
-						}
-						ctx.disableScissor();
+			int accent = themeColor();
+			int rad = Math.round(S_ROUND.v);
+
+			if (S_BLUR.b && !LITE.enabled) renderBackground(ctx, mx, my, delta);
+			else ctx.fill(0, 0, width, height, 0xCC000000);
+
+			ctx.drawTextWithShadow(textRenderer, "PIROZHOK", 10, 10, accent);
+
+			ctx.fill(0, 0, 100, height, 0xAA0A1420);
+			for (int i = 0; i < CATS.length; i++) {
+				int cx = catX(), cy = catY(i);
+				boolean sel = i == selectedCat;
+				rrect(ctx, cx, cy, cx + SW, cy + 24, rad, sel ? alpha(accent, 0x99) : 0x80152030);
+				ctx.drawTextWithShadow(textRenderer, CATS[i], cx + 10, cy + 8, sel ? 0xFFFFFFFF : 0xFFAAAAAA);
+			}
+
+			int sx = modX(), sy = 20;
+			rrect(ctx, sx - 1, sy - 1, sx + modW() + 1, sy + 17, rad, alpha(accent, 0x88));
+			rrect(ctx, sx, sy, sx + modW(), sy + 16, rad, 0xFF0F1A2C);
+			String shownQ = query.isEmpty() && !searchFocus ? "Search..." : query + (((System.currentTimeMillis() / 450) % 2 == 0) && searchFocus ? "_" : "");
+			ctx.drawTextWithShadow(textRenderer, shownQ, sx + 6, sy + 4, query.isEmpty() && !searchFocus ? 0xFF6F7D92 : 0xFFFFFFFF);
+
+			int my2 = modY();
+			for (Mod m : modsOf(CATS[selectedCat])) {
+				if (!query.isEmpty() && !m.name.toLowerCase().contains(query.toLowerCase())) continue;
+				m.anim += ((m.enabled ? 1f : 0f) - m.anim) * 0.3f;
+				m.openAnim += ((m.open ? 1f : 0f) - m.openAnim) * 0.3f;
+				boolean hover = mx >= modX() && mx <= modX() + modW() && my >= my2 && my <= my2 + 20;
+				rrect(ctx, modX(), my2, modX() + modW(), my2 + 20, rad, lerp(hover ? 0xFF203753 : 0xFF182A42, alpha(accent, 0x55), m.anim));
+				if (m.anim > 0f) ctx.fill(modX(), my2, modX() + 3, my2 + 20, alpha(accent, (int) (255 * m.anim)));
+				ctx.drawTextWithShadow(textRenderer, m.name, modX() + 10, my2 + 6, m.always ? 0xFFFFFFFF : lerp(0xFFAEBBCF, 0xFFFFFFFF, m.anim));
+				if (!m.sets.isEmpty()) {
+					ctx.drawTextWithShadow(textRenderer, m.open ? "-" : "+", modX() + modW() - 15, my2 + 6, accent);
+					if (m.enabled && m.sets.size() > 0 && !m.open) {
+						ctx.drawTextWithShadow(textRenderer, m.sets.get(0).shown(), modX() + modW() - 40, my2 + 6, accent);
 					}
-					cy += sh;
+				}
+				my2 += 20;
+				if (m.open && m.openAnim > 0f) {
+					int sh = (int) (m.openAnim * m.sets.size() * 16);
+					ctx.enableScissor(modX(), my2, modX() + modW(), my2 + sh);
+					int sy2 = my2;
+					for (Setting s : m.sets) {
+						ctx.fill(modX(), sy2, modX() + modW(), sy2 + 16, 0xFF12203A);
+						ctx.fill(modX() + 5, sy2, modX() + 6, sy2 + 16, alpha(accent, 0x66));
+						ctx.drawTextWithShadow(textRenderer, s.name, modX() + 10, sy2 + 4, 0xFFAEBBCF);
+						if (s.type == 0) {
+							int pw = 24, ph = 11, px1 = modX() + modW() - 8 - pw, py1 = sy2 + 2;
+							s.tg += ((s.b ? 1f : 0f) - s.tg) * 0.35f;
+							rrect(ctx, px1, py1, px1 + pw, py1 + ph, ph / 2, lerp(0xFF2A3A52, accent, s.tg));
+							int kx = px1 + 1 + (int) ((pw - ph) * s.tg);
+							rrect(ctx, kx, py1 + 1, kx + ph - 2, py1 + ph - 1, (ph - 2) / 2, 0xFFFFFFFF);
+						} else {
+							String val = s.shown();
+							ctx.drawTextWithShadow(textRenderer, val, modX() + modW() - 8 - textRenderer.getWidth(val), sy2 + 4, accent);
+							if (s.type == 1) {
+								int bx1 = modX() + 10, bx2 = modX() + modW() - 8, by = sy2 + 13;
+								ctx.fill(bx1, by, bx2, by + 2, 0xFF2A3A52);
+								ctx.fill(bx1, by, bx1 + (int) ((bx2 - bx1) * ((s.v - s.min) / (s.max - s.min))), by + 2, accent);
+							}
+						}
+						sy2 += 16;
+					}
+					ctx.disableScissor();
+					my2 += sh;
 				}
 			}
-			ctx.drawTextWithShadow(textRenderer, "Click name = on/off  |  + = settings  |  drag header/HUD = move  |  click search to type  |  M = close", (width - textRenderer.getWidth("Click name = on/off  |  + = settings  |  drag header/HUD = move  |  click search to type  |  M = close")) / 2, height - 12, 0xFF8FA3BD);
-		}
-		private boolean isVisible(String name) {
-			return switch (name) {
-				case "Watermark" -> WATERMARK.enabled;
-				case "Coordinates" -> COORDS.enabled;
-				case "FPS" -> FPS.enabled;
-				case "Ping" -> PING.enabled;
-				case "CPS" -> CPS.enabled;
-				case "Speed" -> SPEED.enabled;
-				case "Time" -> TIME.enabled;
-				case "Effects" -> EFFECTS.enabled;
-				case "Keystrokes" -> KEYS.enabled;
-				case "ArrayList" -> ARRAYLIST.enabled;
-				case "Totems" -> TOTEMS.enabled;
-				case "Armor" -> ARMOR.enabled;
-				default -> false;
-			};
+
+			ctx.drawTextWithShadow(textRenderer, "M = close  |  LMB = toggle  |  RMB = settings", 10, height - 12, 0xFF8FA3BD);
 		}
 	}
 }
